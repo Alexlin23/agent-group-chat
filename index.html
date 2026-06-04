@@ -845,16 +845,6 @@ function onStreamEnd() {
 
   // Reload conversations list to update counts
   loadConversations();
-
-  // Process next queued message
-  if (state.messageQueue.length > 0) {
-    const next = state.messageQueue.shift();
-    if (next.convId !== state.currentConv) {
-      selectConversation(next.convId).then(() => _sendToBackend(next.content));
-    } else {
-      _sendToBackend(next.content);
-    }
-  }
 }
 
 function getTargetMessages() {
@@ -886,13 +876,15 @@ async function sendMessage() {
   const content = input.value.trim();
   if (!content || !state.currentConv) return;
 
-  // If streaming, queue the message
+  // If currently streaming, disconnect old stream first (backend will cancel old chain)
   if (state.isStreaming) {
-    state.messageQueue.push({ content, convId: state.currentConv });
-    input.value = '';
-    autoResize(input);
-    deleteDraft(state.currentConv);
-    return;
+    disconnectStream();
+    state.isStreaming = false;
+    // Clear old streaming markers
+    if (state.convData) {
+      state.convData.messages.forEach(m => { delete m._streaming; delete m._task_id; });
+    }
+    document.querySelectorAll('[data-stream-active]').forEach(el => el.removeAttribute('data-stream-active'));
   }
 
   input.value = '';
