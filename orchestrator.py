@@ -1,0 +1,152 @@
+"""Orchestrator — concurrent agent scheduling.
+
+Receives user messages, determines participating agents,
+spawns AgentWorkers concurrently (with semaphore limiting),
+and handles @mention chains.
+"""
+
+import asyncio
+import uuid
+from datetime import datetime
+from typing import Optional
+
+from agent_worker import AgentWorker, MAX_RESPONSES_PER_AGENT
+from event_buffer import EventBuffer
+from message_bus import MessageBus
+
+
+class Orchestrator:
+    """Manages concurrent agent processing for a conversation."""
+
+    def __init__(
+        self,
+        agents: dict,
+        hermes_url: str,
+        hermes_key: str,
+        max_concurrent: int = 3,
+    ):
+        self.agents = agents
+        self.hermes_url = hermes_url
+        self.hermes_key = hermes_key
+        self.max_concurrent = max_concurrent
+        self._active_workers: dict[str, list[AgentWorker]] = {}  # conv_id → workers
+        self._cancel_flags: dict[str, bool] = {}  # conv_id → should cancel chain
+
+    async def process_message(
+        self,
+        conv_id: str,
+        user_message: str,
+        target_ids: list[str],
+        bus: MessageBus,
+        event_buffer: EventBuffer,
+    ):
+        """Process a user message: spawn workers for target agents, handle @mentions."""
+        run_id = uuid.uuid4().hex[:8]
+        semaphore = asyncio.Semaphore(self.max_concurrent)
+        response_count: dict[str, int] = {}
+
+        # Cancel any existing workers for this conversation (interrupt old chain)
+        self.cancel_chain(conv_id)
+        self._cancel_flags[conv_id] = False
+        self._active_workers[conv_id] = []
+
+        async def run_worker(agent_id: str, depth: int) -> Optional[dict]:
+            """Run a single agent worker with semaphore limiting."""
+            if self._cancel_flags.get(conv_id, False):
+                return None
+            if response_count.get(agent_id, 0) >= MAX_RESPONSES_PER_AGENT:
+                return None
+            if agent_id not in self.agents:
+                return None
+
+            response_count[agent_id] = response_count.get(agent_id, 0) + 1
+            task_id = f"{run_id}_{agent_id}_{depth}"
+
+            worker = AgentWorker(
+                agent_id=agent_id,
+                agents=self.agents,
+                message_snapshot=bus.get_snapshot(),
+                event_buffer=event_buffer,
+                hermes_url=self.hermes_url,
+                hermes_key=self.hermes_key,
+                task_id=task_id,
+                depth=depth,
+            )
+            self._active_workers[conv_id].append(worker)
+
+            async with semaphore:
+                msg = await worker.run()
+
+            return msg
+
+        # Phase 1: Process initial target agents concurrently
+        initial_tasks = [run_worker(tid, 0) for tid in target_ids]
+        results = await asyncio.gather(*initial_tasks, return_exceptions=True)
+
+        # Collect results and write to bus
+        new_messages = []
+        for r in results:
+            if isinstance(r, dict) and r:
+                new_messages.append(r)
+
+        if new_messages:
+            await bus.append_batch(new_messages)
+
+        # Phase 2: Process @mention chain (sequential to maintain order)
+        mention_queue = []
+        for worker in self._active_workers.get(conv_id, []):
+            for mid in worker.mentioned_agents:
+                if mid in self.agents:
+                    mention_queue.append((mid, 1))
+
+        # Process @mentions with depth tracking
+        depth = 1
+        while mention_queue and depth < 5 and not self._cancel_flags.get(conv_id, False):
+            next_queue = []
+            # Process current depth level concurrently
+            tasks = []
+            for agent_id, d in mention_queue:
+                if response_count.get(agent_id, 0) < MAX_RESPONSES_PER_AGENT:
+                    tasks.append(run_worker(agent_id, d))
+
+            if not tasks:
+                break
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Collect results
+            new_messages = []
+            for r in results:
+                if isinstance(r, dict) and r:
+                    new_messages.append(r)
+
+            if new_messages:
+                await bus.append_batch(new_messages)
+
+            # Gather @mentions from this depth's workers
+            for worker in self._active_workers.get(conv_id, []):
+                for mid in worker.mentioned_agents:
+                    if mid in self.agents and response_count.get(mid, 0) < MAX_RESPONSES_PER_AGENT:
+                        next_queue.append((mid, depth + 1))
+                        event_buffer.push("mention_trigger", {
+                            "from_agent": worker.agent_id,
+                            "to_agent": mid,
+                            "to_name": self.agents[mid]["name"],
+                        })
+
+            mention_queue = next_queue
+            depth += 1
+
+        # Done
+        event_buffer.push("done", {})
+        event_buffer.close()
+
+        # Clean up
+        self._active_workers.pop(conv_id, None)
+        self._cancel_flags.pop(conv_id, None)
+
+    def cancel_chain(self, conv_id: str):
+        """Cancel all active workers and @mention chain for a conversation."""
+        self._cancel_flags[conv_id] = True
+        for worker in self._active_workers.get(conv_id, []):
+            worker.cancel()

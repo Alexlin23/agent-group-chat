@@ -23,8 +23,8 @@ from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
 from event_buffer import EventBuffer, format_sse
-from graph import run_agent_task
 from message_bus import MessageBus, MessageBusManager
+from orchestrator import Orchestrator
 
 # ── Config ────────────────────────────────────────────────────────────────────
 HERMES_API_URL = os.getenv("HERMES_API_URL", "http://127.0.0.1:8642")
@@ -79,6 +79,7 @@ active_tasks: dict[str, asyncio.Task] = {}       # conv_id → running asyncio.T
 active_buffers: dict[str, EventBuffer] = {}       # conv_id → current EventBuffer
 conversation_locks: dict[str, asyncio.Lock] = {}  # conv_id → lock
 bus_manager = MessageBusManager(DATA_DIR)         # shared message state
+orchestrator: Optional[Orchestrator] = None       # initialized on startup
 
 
 def _get_lock(conv_id: str) -> asyncio.Lock:
@@ -169,12 +170,19 @@ def parse_mentions(text: str, agent_list: list[dict]) -> tuple[list[str], str]:
 
 @app.on_event("startup")
 async def startup():
-    global agents, conversations
+    global agents, conversations, orchestrator
     agents = _load_agents()
     conversations = _load_conversations()
     # Initialize MessageBus for each conversation
     for cid, conv in conversations.items():
         await bus_manager.get_or_create(cid, conv.get("messages", []))
+    # Initialize Orchestrator
+    orchestrator = Orchestrator(
+        agents=agents,
+        hermes_url=HERMES_API_URL,
+        hermes_key=HERMES_API_KEY,
+        max_concurrent=3,
+    )
     # Reset any stale streaming flags from previous runs
     for conv in conversations.values():
         if conv.get("is_streaming"):
@@ -308,17 +316,6 @@ async def send_message(conv_id: str, req: MessageRequest):
     if not agent_list:
         raise HTTPException(400, "No agents configured")
 
-    lock = _get_lock(conv_id)
-
-    # If a task is already running, wait for it (with timeout)
-    if conv_id in active_tasks and not active_tasks[conv_id].done():
-        # Queue: wait for current task to finish
-        try:
-            await asyncio.wait_for(lock.acquire(), timeout=600)
-            lock.release()
-        except asyncio.TimeoutError:
-            raise HTTPException(409, "Previous task still running")
-
     # Parse @mentions
     target_ids, cleaned_text = parse_mentions(req.content, agent_list)
     if not target_ids:
@@ -338,32 +335,29 @@ async def send_message(conv_id: str, req: MessageRequest):
     await bus.append(user_msg)
     conversations[conv_id]["messages"] = bus.messages
 
+    # Cancel any existing chain for this conversation
+    orchestrator.cancel_chain(conv_id)
+
     # Create EventBuffer and start background task
     buffer = EventBuffer()
     active_buffers[conv_id] = buffer
 
     async def _run():
-        async with lock:
-            try:
-                new_messages = await run_agent_task(
-                    conv_id=conv_id,
-                    user_message=req.content,
-                    target_ids=target_ids,
-                    agents=agents,
-                    existing_messages=bus.get_snapshot(),
-                    hermes_url=HERMES_API_URL,
-                    hermes_key=HERMES_API_KEY,
-                    event_buffer=buffer,
-                )
-                # Persist new messages via MessageBus
-                if new_messages:
-                    await bus.append_batch(new_messages)
-                    conversations[conv_id]["messages"] = bus.messages
-            except Exception as e:
-                buffer.push("error", {"error": str(e)[:300]})
-                buffer.close()
-            finally:
-                active_buffers.pop(conv_id, None)
+        try:
+            await orchestrator.process_message(
+                conv_id=conv_id,
+                user_message=req.content,
+                target_ids=target_ids,
+                bus=bus,
+                event_buffer=buffer,
+            )
+            # Sync messages back to conversations dict
+            conversations[conv_id]["messages"] = bus.messages
+        except Exception as e:
+            buffer.push("error", {"error": str(e)[:300]})
+            buffer.close()
+        finally:
+            active_buffers.pop(conv_id, None)
 
     task = asyncio.create_task(_run())
     active_tasks[conv_id] = task
