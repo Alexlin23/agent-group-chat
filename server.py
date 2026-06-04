@@ -344,11 +344,9 @@ async def send_message(conv_id: str, req: MessageRequest):
     # Cut old @mention chain (let current agents finish, don't spawn new ones)
     orchestrator.cut_mention_chain(conv_id)
 
-    # Get or create shared EventBuffer for this conversation
-    buffer = active_buffers.get(conv_id)
-    if buffer is None or not buffer.is_active:
-        buffer = EventBuffer()
-        active_buffers[conv_id] = buffer
+    # Create EventBuffer for this task
+    buffer = EventBuffer()
+    active_buffers[conv_id] = buffer
 
     async def _run(my_buffer=buffer):
         try:
@@ -365,8 +363,8 @@ async def send_message(conv_id: str, req: MessageRequest):
             my_buffer.push("error", {"error": str(e)[:300]})
             my_buffer.close()
         finally:
-            # Only remove if we still own the buffer and no tasks are running
-            if active_buffers.get(conv_id) is my_buffer and conv_id not in active_tasks:
+            # Only remove if we still own the buffer (new task may have replaced it)
+            if active_buffers.get(conv_id) is my_buffer:
                 active_buffers.pop(conv_id, None)
 
     task = asyncio.create_task(_run())
