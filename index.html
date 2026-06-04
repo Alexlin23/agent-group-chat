@@ -154,10 +154,15 @@ button{font-family:inherit;cursor:pointer}
 .empty-state p{font-size:14px}
 
 /* ── Input Area ────────────────────────────────────────────── */
-.input-area{padding:12px 20px 16px;border-top:1px solid var(--border);background:var(--bg-alt);position:relative;transition:background 0.2s,border-color 0.2s}
-.input-wrapper{display:flex;gap:8px;align-items:flex-end}
-.input-field{flex:1;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:10px 14px;font-size:14px;color:var(--text);resize:none;font-family:inherit;line-height:1.5;max-height:150px;min-height:42px;outline:none;overflow-y:auto}
+.input-area{padding:12px 20px 16px;border-top:1px solid var(--border);background:var(--bg-alt);position:relative;transition:background 0.2s,border-color 0.2s;--auto-max:150px;--drag-max:250px}
+.input-wrapper{display:flex;gap:8px;align-items:flex-end;flex-direction:column;position:relative}
+.input-field{flex:1;width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:10px 14px;font-size:14px;color:var(--text);resize:none;font-family:inherit;line-height:1.5;max-height:var(--auto-max);min-height:42px;outline:none;overflow-y:auto;scrollbar-width:none}
 .input-field:focus{border-color:var(--accent)}
+.input-field::-webkit-scrollbar{display:none}
+.resize-handle{position:absolute;top:-3px;left:0;right:0;height:6px;cursor:row-resize;z-index:2;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.15s;padding:4px 0;margin:-4px 0}
+.resize-handle:hover,.resize-handle.dragging{opacity:1}
+.resize-handle::after{content:'';width:48px;height:3px;border-radius:2px;background:var(--accent);opacity:0.6}
+.input-row{display:flex;gap:8px;align-items:flex-end;width:100%}
 .input-field::placeholder{color:var(--text-dim)}
 .send-btn{background:var(--accent);border:none;color:#fff;width:42px;height:42px;border-radius:50%;font-size:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity 0.15s}
 .send-btn:hover{opacity:0.85}
@@ -243,8 +248,11 @@ button{font-family:inherit;cursor:pointer}
     <div class="input-area">
       <div class="mention-dropdown" id="mention-dropdown"></div>
       <div class="input-wrapper">
-        <textarea class="input-field" id="input" placeholder="输入消息... 用 @名字 指定agent" rows="1" disabled></textarea>
-        <button class="send-btn" id="send-btn" onclick="sendMessage()" disabled>➤</button>
+        <div class="resize-handle" id="resize-handle"></div>
+        <div class="input-row">
+          <textarea class="input-field" id="input" placeholder="输入消息... 用 @名字 指定agent" rows="1" disabled></textarea>
+          <button class="send-btn" id="send-btn" onclick="sendMessage()" disabled>➤</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1071,10 +1079,58 @@ function scrollToBottom() {
   el.scrollTop = el.scrollHeight;
 }
 
+let isDragging = false;
+const INPUT_HEIGHT_KEY = 'agent-chat-input-height';
+
 function autoResize(textarea) {
+  if (isDragging) return;
   textarea.style.height = 'auto';
-  textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px';
+  const maxH = parseInt(getComputedStyle(document.querySelector('.input-area')).getPropertyValue('--auto-max'));
+  textarea.style.height = Math.min(textarea.scrollHeight, maxH) + 'px';
 }
+
+(function setupResizeHandle() {
+  const handle = document.getElementById('resize-handle');
+  const textarea = document.getElementById('input');
+  if (!handle || !textarea) return;
+  let startY, startH;
+  const dragMax = () => parseInt(getComputedStyle(document.querySelector('.input-area')).getPropertyValue('--drag-max'));
+  const minH = 42;
+
+  handle.addEventListener('mousedown', (e) => {
+    if (textarea.disabled) return;
+    e.preventDefault();
+    isDragging = true;
+    handle.classList.add('dragging');
+    startY = e.clientY;
+    startH = textarea.offsetHeight;
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('mouseup', onDragEnd);
+  });
+
+  function onDrag(e) {
+    const dy = startY - e.clientY;
+    const newH = Math.max(minH, Math.min(startH + dy, dragMax()));
+    textarea.style.height = newH + 'px';
+    textarea.style.maxHeight = newH + 'px';
+  }
+
+  function onDragEnd() {
+    isDragging = false;
+    handle.classList.remove('dragging');
+    document.removeEventListener('mousemove', onDrag);
+    document.removeEventListener('mouseup', onDragEnd);
+    localStorage.setItem(INPUT_HEIGHT_KEY, textarea.offsetHeight);
+    // Restore auto-max so autoResize can take over again
+    textarea.style.maxHeight = '';
+  }
+
+  // Restore saved height on load
+  const savedH = localStorage.getItem(INPUT_HEIGHT_KEY);
+  if (savedH) {
+    textarea.style.height = savedH + 'px';
+  }
+})();
 
 function enableInput(enabled) {
   document.getElementById('input').disabled = !enabled;
