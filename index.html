@@ -578,7 +578,7 @@ async function selectConversation(id) {
   // Restore draft
   const inputEl = document.getElementById('input');
   inputEl.value = loadDraft(id);
-  autoResize(inputEl);
+  if (!hasManualHeight) autoResize(inputEl);
 
   document.getElementById('chat-title').textContent = state.convData.name;
   document.getElementById('chat-status').textContent = `${state.convData.messages.length} 条消息`;
@@ -951,6 +951,7 @@ function setupMentionAutocomplete() {
   const dropdown = document.getElementById('mention-dropdown');
 
   input.addEventListener('input', () => {
+    hasManualHeight = false;
     autoResize(input);
     checkMention();
   });
@@ -1080,6 +1081,7 @@ function scrollToBottom() {
 }
 
 let isDragging = false;
+let hasManualHeight = false;
 const INPUT_HEIGHT_KEY = 'agent-chat-input-height';
 
 function autoResize(textarea) {
@@ -1129,6 +1131,7 @@ function autoResize(textarea) {
   const savedH = localStorage.getItem(INPUT_HEIGHT_KEY);
   if (savedH) {
     textarea.style.height = savedH + 'px';
+    hasManualHeight = true;
   }
 })();
 
