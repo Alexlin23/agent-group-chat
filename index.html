@@ -59,7 +59,11 @@ button{font-family:inherit;cursor:pointer}
 .theme-toggle:hover{background:var(--bg-hover);transform:rotate(30deg)}
 
 .sidebar-section{padding:8px}
-.sidebar-section-title{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;padding:8px 8px 4px}
+.sidebar-section-title{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;padding:8px 8px 4px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none;border-radius:4px}
+.sidebar-section-title:hover{color:var(--text)}
+.sidebar-section-title .chevron{font-size:10px;transition:transform 0.2s ease}
+.sidebar-section.collapsed .chevron{transform:rotate(-90deg)}
+.sidebar-section.collapsed .section-content{display:none}
 
 /* Conversation list */
 .conv-item{display:flex;align-items:center;padding:8px 12px;border-radius:var(--radius);cursor:pointer;font-size:13px;color:var(--text-dim);gap:8px;position:relative}
@@ -209,9 +213,11 @@ button{font-family:inherit;cursor:pointer}
     </div>
 
     <div class="sidebar-section">
-      <div class="sidebar-section-title">Agents</div>
-      <div id="agent-list"></div>
-      <button class="new-agent-btn" onclick="showAgentModal()">+ 添加Agent</button>
+      <div class="sidebar-section-title" onclick="toggleAgentList()">Agents<span class="chevron">▼</span></div>
+      <div class="section-content">
+        <div id="agent-list"></div>
+        <button class="new-agent-btn" onclick="showAgentModal()">+ 添加Agent</button>
+      </div>
     </div>
 
     <div class="sidebar-footer">
@@ -328,10 +334,28 @@ function restoreSidebar() {
   }
 }
 
+// ── Agent List Collapse ─────────────────────────────────
+const AGENT_LIST_KEY = 'agent-chat-agent-list-collapsed';
+
+function toggleAgentList() {
+  const section = document.querySelector('#agent-list').closest('.sidebar-section');
+  const collapsed = section.classList.toggle('collapsed');
+  localStorage.setItem(AGENT_LIST_KEY, collapsed ? '1' : '0');
+}
+
+function restoreAgentList() {
+  const saved = localStorage.getItem(AGENT_LIST_KEY);
+  if (saved === '1') {
+    const section = document.querySelector('#agent-list').closest('.sidebar-section');
+    section.classList.add('collapsed');
+  }
+}
+
 async function init() {
   const savedTheme = localStorage.getItem(THEME_KEY) || 'dark';
   applyTheme(savedTheme);
   restoreSidebar();
+  restoreAgentList();
 
   await loadAgents();
   await loadConversations();
@@ -658,9 +682,11 @@ function disconnectStream() {
 }
 
 function tryConnectStream(convId) {
-  // Try to connect to the stream for this conversation
-  // If there's no active task, the server sends "no_task" and we close
-  if (state.activeEventSource) return;
+  // Always clean up existing connection first
+  if (state.activeEventSource) {
+    state.activeEventSource.close();
+    state.activeEventSource = null;
+  }
 
   const url = `/api/conversations/${convId}/stream`;
   const es = new EventSource(url);
@@ -765,9 +791,10 @@ function tryConnectStream(convId) {
   });
 
   es.addEventListener('no_task', (e) => {
-    // No active task for this conversation
+    // No active task — reset streaming state and close
     es.close();
     state.activeEventSource = null;
+    onStreamEnd();
   });
 }
 
