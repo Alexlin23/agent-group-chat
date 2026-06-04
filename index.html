@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agent Group Chat</title>
+<title>Agent Group Chat v2</title>
 <style>
 /* ── Reset & Base ──────────────────────────────────────────── */
 *{margin:0;padding:0;box-sizing:border-box}
@@ -223,7 +223,7 @@ button{font-family:inherit;cursor:pointer}
   <!-- Main -->
   <div class="main">
     <div class="chat-header">
-      <h1 id="chat-title">Agent Group Chat</h1>
+      <h1 id="chat-title">Agent Group Chat v2</h1>
       <span class="status" id="chat-status"></span>
     </div>
 
@@ -276,14 +276,16 @@ let state = {
   conversations: [],
   currentConv: null,
   convData: null,
-  convCache: {},     // per-conversation data cache {convId: {messages: [...]}}
-  // drafts now persisted in localStorage (key prefix: 'draft-')
-  streamingConv: null, // conversation ID currently being streamed
+  convCache: {},
   isStreaming: false,
-  messageQueue: [],   // messages queued while streaming
+  streamingConv: null,
+  messageQueue: [],
   editingAgentId: null,
   mentionIndex: -1,
   filteredAgents: [],
+  activeEventSource: null,   // current EventSource connection
+  currentAgentId: null,      // agent currently being streamed
+  currentResponse: '',       // accumulated response text
 };
 
 const COLORS = ['#4FC3F7','#81C784','#FFB74D','#CE93D8','#F06292','#4DD0E1','#AED581','#FFD54F','#BCAAA4','#90CAF9','#EF5350','#AB47BC','#26A69A','#FF7043','#5C6BC0','#66BB6A','#EC407A','#29B6F6'];
@@ -327,11 +329,8 @@ function restoreSidebar() {
 }
 
 async function init() {
-  // Restore theme preference
   const savedTheme = localStorage.getItem(THEME_KEY) || 'dark';
   applyTheme(savedTheme);
-
-  // Restore sidebar state
   restoreSidebar();
 
   await loadAgents();
@@ -340,7 +339,6 @@ async function init() {
   renderColorPicker();
   initPromptResize();
 
-  // Restore last active conversation
   const lastConv = localStorage.getItem('agent-chat-last-conv');
   if (lastConv && state.conversations.find(c => c.id === lastConv)) {
     await selectConversation(lastConv);
@@ -354,25 +352,15 @@ const PROMPT_DEFAULT_HEIGHT = 350;
 function initPromptResize() {
   const ta = document.getElementById('agent-prompt');
   if (!ta) return;
-
-  // Restore saved height
   const saved = localStorage.getItem(PROMPT_HEIGHT_KEY);
-  if (saved) {
-    ta.style.height = saved + 'px';
-  }
-
-  // Save on resize (native resize:vertical fires this)
+  if (saved) ta.style.height = saved + 'px';
   const ro = new ResizeObserver(entries => {
     for (const entry of entries) {
       const h = Math.round(entry.contentRect.height);
-      if (h > 100) { // ignore collapse
-        localStorage.setItem(PROMPT_HEIGHT_KEY, h);
-      }
+      if (h > 100) localStorage.setItem(PROMPT_HEIGHT_KEY, h);
     }
   });
   ro.observe(ta);
-
-  // Double-click to reset
   ta.addEventListener('dblclick', () => {
     ta.style.height = PROMPT_DEFAULT_HEIGHT + 'px';
     localStorage.removeItem(PROMPT_HEIGHT_KEY);
@@ -418,7 +406,6 @@ function showAgentModal(agentId) {
   const modal = document.getElementById('agent-modal');
   const title = document.getElementById('agent-modal-title');
   const delBtn = document.getElementById('agent-delete-btn');
-
   if (agentId) {
     const a = state.agents.find(x => x.id === agentId);
     if (!a) return;
@@ -455,9 +442,7 @@ async function saveAgent() {
   const avatar = document.getElementById('agent-avatar').value.trim() || '🤖';
   const prompt = document.getElementById('agent-prompt').value.trim();
   const color = document.querySelector('.color-swatch.selected')?.dataset.color || COLORS[0];
-
   if (!name || !id) return alert('名称和ID不能为空');
-
   if (state.editingAgentId) {
     await api.put(`/api/agents/${state.editingAgentId}`, { name, color, avatar, system_prompt: prompt });
   } else {
@@ -515,48 +500,36 @@ async function createConversation() {
 }
 
 // Draft persistence via localStorage
-function saveDraft(convId, text) {
-  localStorage.setItem('draft-' + convId, text);
-}
-function loadDraft(convId) {
-  return localStorage.getItem('draft-' + convId) || '';
-}
-function deleteDraft(convId) {
-  localStorage.removeItem('draft-' + convId);
-}
+function saveDraft(convId, text) { localStorage.setItem('draft-' + convId, text); }
+function loadDraft(convId) { return localStorage.getItem('draft-' + convId) || ''; }
+function deleteDraft(convId) { localStorage.removeItem('draft-' + convId); }
 
 async function selectConversation(id) {
-  // Save current input draft before switching
+  // Save current draft
   if (state.currentConv) {
-    const inputEl = document.getElementById('input');
-    const text = inputEl.value;
-    console.log(`[DRAFT] Saving draft for ${state.currentConv}: "${text}" (length=${text.length})`);
-    if (text) {
-      saveDraft(state.currentConv, text);
-    } else {
-      deleteDraft(state.currentConv);
-    }
+    const text = document.getElementById('input').value;
+    if (text) saveDraft(state.currentConv, text);
+    else deleteDraft(state.currentConv);
   }
 
-  // Save current conversation data to cache before switching
+  // Save current conv data to cache
   if (state.currentConv && state.convData) {
     state.convCache[state.currentConv] = state.convData;
   }
 
+  // Disconnect current stream if switching conversations
+  disconnectStream();
+
   state.currentConv = id;
 
-  // Use cached data if available (preserves in-flight streaming data)
+  // Load from cache or server
   if (state.convCache[id]) {
     state.convData = state.convCache[id];
-    // Also refresh from server to get any persisted data
     try {
       const serverData = await api.get(`/api/conversations/${id}`);
-      // Merge: keep cached messages that aren't on the server yet
       const serverMsgCount = serverData.messages.length;
       const cachedMsgCount = state.convData.messages.length;
-      if (cachedMsgCount > serverMsgCount) {
-        // Cached has more messages (from streaming) - keep cached
-      } else {
+      if (cachedMsgCount <= serverMsgCount) {
         state.convData = serverData;
         state.convCache[id] = serverData;
       }
@@ -567,24 +540,25 @@ async function selectConversation(id) {
   }
 
   renderConvList();
-
   renderMessages();
   enableInput(!state.isStreaming);
 
-  // Restore draft for this conversation
+  // Restore draft
   const inputEl = document.getElementById('input');
-  const restoredText = loadDraft(id);
-  console.log(`[DRAFT] Restoring draft for ${id}: "${restoredText}"`);
-  inputEl.value = restoredText;
+  inputEl.value = loadDraft(id);
   autoResize(inputEl);
 
   document.getElementById('chat-title').textContent = state.convData.name;
   document.getElementById('chat-status').textContent = `${state.convData.messages.length} 条消息`;
   localStorage.setItem('agent-chat-last-conv', id);
+
+  // If a task might be running for this conversation, try connecting to stream
+  tryConnectStream(id);
 }
 
 async function deleteConversation(id) {
   if (!confirm('确定删除这个对话？')) return;
+  if (state.currentConv === id) disconnectStream();
   await api.del(`/api/conversations/${id}`);
   delete state.convCache[id];
   deleteDraft(id);
@@ -596,7 +570,7 @@ async function deleteConversation(id) {
     state.convData = null;
     renderMessages();
     enableInput(false);
-    document.getElementById('chat-title').textContent = 'Agent Group Chat';
+    document.getElementById('chat-title').textContent = 'Agent Group Chat v2';
     document.getElementById('chat-status').textContent = '';
   }
   await loadConversations();
@@ -608,7 +582,6 @@ async function renameConversation(id) {
   const newName = prompt('输入新名称:', conv.name);
   if (!newName || newName.trim() === conv.name) return;
   await api.put(`/api/conversations/${id}`, { name: newName.trim() });
-  // If renaming the current conversation, update the header
   if (state.currentConv === id) {
     document.getElementById('chat-title').textContent = newName.trim();
     if (state.convData) state.convData.name = newName.trim();
@@ -620,13 +593,11 @@ async function renameConversation(id) {
 function renderMessages() {
   const el = document.getElementById('messages');
   const empty = document.getElementById('empty-state');
-
   if (!state.convData || !state.convData.messages.length) {
     el.innerHTML = '';
     el.appendChild(createEmptyState());
     return;
   }
-
   el.innerHTML = '';
   for (const msg of state.convData.messages) {
     el.appendChild(createMessageEl(msg));
@@ -651,8 +622,6 @@ function createMessageEl(msg) {
 
   const div = document.createElement('div');
   div.className = `msg ${isUser ? 'user-msg' : 'agent-msg'}`;
-  // For streaming messages (re-rendered after conversation switch), restore active attributes
-  // so text event rebind via querySelector can find the correct DOM element
   if (isStreaming && !isUser && agent) {
     div.setAttribute('data-stream-agent', agent.id);
     div.setAttribute('data-stream-active', 'true');
@@ -677,7 +646,189 @@ function highlightMentions(text) {
   });
 }
 
-// ── Streaming ───────────────────────────────────────────────
+// ── Streaming (v2: EventSource) ─────────────────────────────
+
+function disconnectStream() {
+  if (state.activeEventSource) {
+    state.activeEventSource.close();
+    state.activeEventSource = null;
+  }
+  state.currentAgentId = null;
+  state.currentResponse = '';
+}
+
+function tryConnectStream(convId) {
+  // Try to connect to the stream for this conversation
+  // If there's no active task, the server sends "no_task" and we close
+  if (state.activeEventSource) return;
+
+  const url = `/api/conversations/${convId}/stream`;
+  const es = new EventSource(url);
+  state.activeEventSource = es;
+
+  es.addEventListener('agent_start', (e) => {
+    const evt = JSON.parse(e.data);
+    const agent = state.agents.find(a => a.id === evt.agent_id);
+    if (!agent) return;
+
+    state.currentAgentId = evt.agent_id;
+    state.currentResponse = '';
+
+    // Add streaming placeholder to messages
+    const msgs = getTargetMessages();
+    msgs.push({
+      role: 'assistant', content: '', agent_id: evt.agent_id, _streaming: true,
+    });
+
+    // Create streaming UI
+    const container = createStreamingEl(agent);
+    document.getElementById('messages').appendChild(container);
+    scrollToBottom();
+  });
+
+  es.addEventListener('text', (e) => {
+    const evt = JSON.parse(e.data);
+    state.currentResponse += evt.text;
+
+    // Update streaming placeholder in messages
+    const msgs = getTargetMessages();
+    const placeholder = msgs.findLast(m => m._streaming && m.agent_id === evt.agent_id);
+    if (placeholder) placeholder.content = state.currentResponse;
+
+    // Update DOM
+    const container = document.querySelector(`[data-stream-agent="${evt.agent_id}"][data-stream-active="true"]`);
+    const textEl = container ? container.querySelector('.streaming-text') : null;
+    if (textEl) {
+      textEl.innerHTML = renderMarkdown(state.currentResponse);
+      textEl.classList.add('streaming-cursor');
+    }
+    scrollToBottom();
+  });
+
+  es.addEventListener('agent_done', (e) => {
+    const evt = JSON.parse(e.data);
+
+    // Remove cursor
+    const container = document.querySelector(`[data-stream-agent="${evt.agent_id}"][data-stream-active="true"]`);
+    const textEl = container ? container.querySelector('.streaming-text') : null;
+    if (textEl) textEl.classList.remove('streaming-cursor');
+    if (container) container.removeAttribute('data-stream-active');
+
+    // Replace streaming placeholder with final message
+    const msgs = getTargetMessages();
+    const idx = msgs.findLastIndex(m => m._streaming && m.agent_id === evt.agent_id);
+    if (idx >= 0) {
+      if (evt.full_response) {
+        msgs[idx] = { role: 'assistant', content: evt.full_response, agent_id: evt.agent_id };
+      } else {
+        msgs.splice(idx, 1);
+      }
+    }
+
+    state.currentAgentId = null;
+    state.currentResponse = '';
+  });
+
+  es.addEventListener('mention_trigger', (e) => {
+    const evt = JSON.parse(e.data);
+    const fromAgent = state.agents.find(a => a.id === evt.from_agent);
+    const toAgent = state.agents.find(a => a.id === evt.to_agent);
+    if (fromAgent && toAgent) {
+      const sysDiv = document.createElement('div');
+      sysDiv.style.cssText = 'text-align:center;font-size:12px;color:var(--text-dim);padding:4px 0;opacity:0.7';
+      sysDiv.innerHTML = `${fromAgent.avatar} <span style="color:${fromAgent.color}">${esc(fromAgent.name)}</span> @了 <span style="color:${toAgent.color}">${esc(toAgent.name)}</span>`;
+      document.getElementById('messages').appendChild(sysDiv);
+      scrollToBottom();
+    }
+  });
+
+  es.addEventListener('error', (e) => {
+    if (e.data) {
+      const evt = JSON.parse(e.data);
+      const container = document.querySelector(`[data-stream-active="true"]`);
+      const textEl = container ? container.querySelector('.streaming-text') : null;
+      if (textEl) {
+        textEl.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(evt.error)}</span>`;
+        textEl.classList.remove('streaming-cursor');
+      }
+    }
+    // EventSource auto-reconnects on network errors
+    // But if the server closed the stream (no_task), we should close
+    if (es.readyState === EventSource.CLOSED) {
+      onStreamEnd();
+    }
+  });
+
+  es.addEventListener('done', (e) => {
+    // Stream complete
+    onStreamEnd();
+  });
+
+  es.addEventListener('no_task', (e) => {
+    // No active task for this conversation
+    es.close();
+    state.activeEventSource = null;
+  });
+}
+
+function onStreamEnd() {
+  disconnectStream();
+  state.isStreaming = false;
+  state.streamingConv = null;
+
+  // Finalize: clear all _streaming markers
+  if (state.convData) {
+    state.convData.messages.forEach(m => { delete m._streaming; });
+  }
+
+  // Update UI
+  if (state.currentConv) {
+    renderMessages();
+    const statusEl = document.getElementById('chat-status');
+    if (state.convData) {
+      statusEl.textContent = `${state.convData.messages.length} 条消息`;
+    }
+  }
+  updateSendBtn();
+  enableInput(true);
+
+  // Reload conversations list to update counts
+  loadConversations();
+
+  // Process next queued message
+  if (state.messageQueue.length > 0) {
+    const next = state.messageQueue.shift();
+    if (next.convId !== state.currentConv) {
+      selectConversation(next.convId).then(() => _sendToBackend(next.content));
+    } else {
+      _sendToBackend(next.content);
+    }
+  }
+}
+
+function getTargetMessages() {
+  if (state.convData) return state.convData.messages;
+  return [];
+}
+
+function createStreamingEl(agent) {
+  const div = document.createElement('div');
+  div.className = 'msg agent-msg';
+  div.setAttribute('data-stream-agent', agent.id);
+  div.setAttribute('data-stream-active', 'true');
+  div.innerHTML = `
+    <div class="msg-avatar" style="background:${agent.color}20;color:${agent.color}">${agent.avatar}</div>
+    <div class="msg-body">
+      <div class="msg-meta"><span class="name" style="color:${agent.color}">${esc(agent.name)}</span></div>
+      <div class="msg-content streaming-text" style="border-left:3px solid ${agent.color}30">
+        <div class="typing-dots"><span></span><span></span><span></span></div>
+      </div>
+    </div>
+  `;
+  return div;
+}
+
+// ── Send Message ────────────────────────────────────────────
 async function sendMessage() {
   const input = document.getElementById('input');
   const content = input.value.trim();
@@ -700,217 +851,47 @@ async function sendMessage() {
 }
 
 async function _sendToBackend(content) {
-  // Capture target conversation to prevent cross-conversation pollution during streaming
   const targetConvId = state.currentConv;
-  const getTargetMessages = () => {
-    if (state.currentConv === targetConvId && state.convData) return state.convData.messages;
-    const cached = state.convCache[targetConvId];
-    return cached ? cached.messages : [];
-  };
-  const isViewingTarget = () => state.currentConv === targetConvId;
 
   // Add user message to UI immediately
   const userMsg = { role: 'user', content, agent_id: null };
-  getTargetMessages().push(userMsg);
-  if (isViewingTarget()) renderMessages();
+  if (state.convData) state.convData.messages.push(userMsg);
+  renderMessages();
 
-  // Auto-rename conversation on first message
+  // Auto-rename on first message
   const conv = state.conversations.find(c => c.id === targetConvId);
-  if (conv && conv.name === '新对话' && getTargetMessages().length <= 1) {
+  if (conv && conv.name === '新对话' && state.convData && state.convData.messages.length <= 1) {
     const newName = content.replace(/^@\S+\s*/, '').substring(0, 30) || content.substring(0, 30);
     conv.name = newName;
     api.put(`/api/conversations/${targetConvId}`, { name: newName }).catch(() => {});
-    if (isViewingTarget()) {
-      document.getElementById('chat-title').textContent = newName;
-      renderConvList();
-    }
+    document.getElementById('chat-title').textContent = newName;
+    renderConvList();
   }
 
   // Parse targets
   const targets = parseTargetsFromText(content);
 
   state.isStreaming = true;
-  state.streamingConv = state.currentConv;
+  state.streamingConv = targetConvId;
   updateSendBtn();
 
   try {
-    const resp = await fetch(`/api/conversations/${state.currentConv}/message`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ content, targets }),
-    });
+    // POST message — returns immediately, agent processing starts in background
+    const resp = await api.post(`/api/conversations/${targetConvId}/message`, { content, targets });
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let currentTextEl = null;
-    let currentResponse = '';
-    let currentAgentId = null;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const evt = JSON.parse(line);
-
-          if (evt.type === 'agent_start') {
-            // Always create a NEW container for each agent response
-            const agent = state.agents.find(a => a.id === evt.agent_id);
-            if (agent) {
-              if (isViewingTarget()) {
-                const container = createStreamingEl(agent);
-                document.getElementById('messages').appendChild(container);
-                currentTextEl = container.querySelector('.streaming-text');
-                if (currentTextEl) currentTextEl.classList.add('streaming-cursor');
-              } else {
-                currentTextEl = null;
-              }
-              currentResponse = '';
-              currentAgentId = evt.agent_id;
-              // Push streaming placeholder into convData so it survives conversation switch
-              getTargetMessages().push({
-                role: 'assistant',
-                content: '',
-                agent_id: evt.agent_id,
-                _streaming: true,
-              });
-            }
-          }
-          else if (evt.type === 'text' && evt.agent_id) {
-            currentResponse += evt.text;
-            // Rebind currentTextEl if null (switched away) or disconnected (DOM rebuilt)
-            if (!currentTextEl || !currentTextEl.isConnected) {
-              const container = document.querySelector(`[data-stream-agent="${currentAgentId}"][data-stream-active="true"]`);
-              currentTextEl = container ? container.querySelector('.streaming-text') : null;
-            }
-            if (currentTextEl) {
-              currentTextEl.innerHTML = renderMarkdown(currentResponse);
-              currentTextEl.classList.add('streaming-cursor');
-            }
-            // Also update the placeholder message in convData
-            const placeholder = getTargetMessages().findLast(
-              m => m._streaming && m.agent_id === currentAgentId
-            );
-            if (placeholder) placeholder.content = currentResponse;
-            if (isViewingTarget()) scrollToBottom();
-          }
-          else if (evt.type === 'agent_done') {
-            if (currentTextEl) {
-              currentTextEl.classList.remove('streaming-cursor');
-              // Remove active marker so rebind won't match completed messages
-              const container = currentTextEl.closest('.msg');
-              if (container) container.removeAttribute('data-stream-active');
-            }
-            // Find and replace the streaming placeholder instead of pushing a new message
-            {
-              const msgs = getTargetMessages();
-              const idx = msgs.findLastIndex(
-                m => m._streaming && m.agent_id === evt.agent_id
-              );
-              if (idx >= 0) {
-                if (currentResponse) {
-                  msgs[idx] = { role: 'assistant', content: currentResponse, agent_id: evt.agent_id };
-                } else {
-                  // Empty response — remove orphan placeholder entirely
-                  msgs.splice(idx, 1);
-                }
-              } else if (currentResponse) {
-                msgs.push({ role: 'assistant', content: currentResponse, agent_id: evt.agent_id });
-              }
-            }
-            currentAgentId = null;
-          }
-          else if (evt.type === 'mention_trigger') {
-            // Agent @mentioned another agent - show a system message
-            if (isViewingTarget()) {
-              const fromAgent = state.agents.find(a => a.id === evt.from_agent);
-              const toAgent = state.agents.find(a => a.id === evt.to_agent);
-              if (fromAgent && toAgent) {
-                const sysDiv = document.createElement('div');
-                sysDiv.style.cssText = 'text-align:center;font-size:12px;color:var(--text-dim);padding:4px 0;opacity:0.7';
-                sysDiv.innerHTML = `${fromAgent.avatar} <span style="color:${fromAgent.color}">${esc(fromAgent.name)}</span> @了 <span style="color:${toAgent.color}">${esc(toAgent.name)}</span>`;
-                document.getElementById('messages').appendChild(sysDiv);
-              }
-              scrollToBottom();
-            }
-          }
-          else if (evt.type === 'error') {
-            if (currentTextEl) {
-              currentTextEl.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(evt.error)}</span>`;
-              currentTextEl.classList.remove('streaming-cursor');
-              const container = currentTextEl.closest('.msg');
-              if (container) container.removeAttribute('data-stream-active');
-            }
-            // P2: Clear _streaming marker on error
-            if (currentAgentId) {
-              const msgs = getTargetMessages();
-              const idx = msgs.findLastIndex(
-                m => m._streaming && m.agent_id === currentAgentId
-              );
-              if (idx >= 0) delete msgs[idx]._streaming;
-              currentAgentId = null;
-            }
-          }
-          else if (evt.type === 'done') {
-            // P3: Defensive cleanup - clear any remaining _streaming markers and active attrs
-            getTargetMessages().forEach(m => { delete m._streaming; });
-            document.querySelectorAll('[data-stream-active]').forEach(el => el.removeAttribute('data-stream-active'));
-            if (isViewingTarget()) renderMessages();
-          }
-        } catch {}
-      }
+    if (resp.status === 'accepted') {
+      // Connect to SSE stream for this conversation
+      tryConnectStream(targetConvId);
+    } else {
+      console.error('Unexpected response:', resp);
+      state.isStreaming = false;
+      enableInput(true);
     }
   } catch (err) {
-    console.error('Stream error:', err);
-    // P2: Clear streaming markers on unexpected errors
-    getTargetMessages().forEach(m => { delete m._streaming; });
-    document.querySelectorAll('[data-stream-active]').forEach(el => el.removeAttribute('data-stream-active'));
+    console.error('Send error:', err);
+    state.isStreaming = false;
+    enableInput(true);
   }
-
-  state.isStreaming = false;
-  state.streamingConv = null;
-  // Update cache for the target conversation (not necessarily current view)
-  if (isViewingTarget() && state.convData) {
-    state.convCache[targetConvId] = state.convData;
-    document.getElementById('chat-status').textContent = `${state.convData.messages.length} 条消息`;
-    renderMessages();
-  }
-  updateSendBtn();
-
-  // Process next queued message
-  if (state.messageQueue.length > 0) {
-    const next = state.messageQueue.shift();
-    // Switch to the conversation if different
-    if (next.convId !== state.currentConv) {
-      await selectConversation(next.convId);
-    }
-    // Re-trigger send with queued content
-    await _sendToBackend(next.content);
-  }
-}
-
-function createStreamingEl(agent) {
-  const div = document.createElement('div');
-  div.className = 'msg agent-msg';
-  div.setAttribute('data-stream-agent', agent.id);
-  div.setAttribute('data-stream-active', 'true');
-  div.innerHTML = `
-    <div class="msg-avatar" style="background:${agent.color}20;color:${agent.color}">${agent.avatar}</div>
-    <div class="msg-body">
-      <div class="msg-meta"><span class="name" style="color:${agent.color}">${esc(agent.name)}</span></div>
-      <div class="msg-content streaming-text" style="border-left:3px solid ${agent.color}30">
-        <div class="typing-dots"><span></span><span></span><span></span></div>
-      </div>
-    </div>
-  `;
-  return div;
 }
 
 function parseTargetsFromText(text) {
@@ -963,7 +944,6 @@ function setupMentionAutocomplete() {
     }
   });
 
-  // Click outside to close
   document.addEventListener('click', (e) => {
     if (!dropdown.contains(e.target) && e.target !== input) {
       dropdown.classList.remove('show');
@@ -975,11 +955,8 @@ function checkMention() {
   const input = document.getElementById('input');
   const val = input.value;
   const pos = input.selectionStart;
-
-  // Find @ before cursor
   const before = val.slice(0, pos);
   const atMatch = before.match(/@(\S*)$/);
-
   if (atMatch) {
     const query = atMatch[1].toLowerCase();
     state.filteredAgents = state.agents.filter(a =>
@@ -1004,8 +981,6 @@ function renderMentionDropdown() {
       <span class="m-id">@${esc(a.id)}</span>
     </div>
   `).join('');
-
-  // pointerdown event delegation — replaces broken inline onmousedown with JSON in attributes
   el.onpointerdown = (e) => {
     const item = e.target.closest('.mention-item');
     if (!item) return;
@@ -1042,40 +1017,25 @@ function esc(s) {
 function renderMarkdown(text) {
   if (!text) return '';
   let html = esc(text);
-
-  // Code blocks
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `<pre><code>${code}</code></pre>`);
-  // Inline code
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  // Bold
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  // Italic
   html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
-  // Headers
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  // Blockquote
   html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-  // Unordered list
   html = html.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
   html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-  // Ordered list
   html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-  // Paragraphs (double newline)
   html = html.replace(/\n\n/g, '</p><p>');
-  // Single newline
   html = html.replace(/\n/g, '<br>');
-  // Wrap in paragraph
   if (!html.startsWith('<')) html = '<p>' + html + '</p>';
-
-  // Highlight @mentions
   html = html.replace(/@(\S+)/g, (match, name) => {
     const agent = state.agents.find(a => a.name === name || a.id === name);
     if (agent) return `<span class="mention" style="color:${agent.color}">@${esc(name)}</span>`;
     return match;
   });
-
   return html;
 }
 
