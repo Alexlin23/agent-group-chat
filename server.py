@@ -319,7 +319,9 @@ async def send_message(conv_id: str, req: MessageRequest):
     # Parse @mentions
     target_ids, cleaned_text = parse_mentions(req.content, agent_list)
     if not target_ids:
-        target_ids = [a["id"] for a in agent_list]
+        # No @mentions: only trigger the first agent (natural group chat rhythm)
+        # Others can join via @mention chains from the first agent's response
+        target_ids = [agent_list[0]["id"]]
 
     for tid in target_ids:
         if tid not in agents:
