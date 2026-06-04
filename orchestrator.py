@@ -88,8 +88,8 @@ class Orchestrator:
         semaphore = asyncio.Semaphore(self.max_concurrent)
         response_count: dict[str, int] = {}
 
-        # Cancel any existing workers for this conversation (interrupt old chain)
-        self.cancel_chain(conv_id)
+        # Cut old @mention chain (let current workers finish, don't spawn new ones)
+        self.cut_mention_chain(conv_id)
         self._cancel_flags[conv_id] = False
         self._active_workers[conv_id] = []
 
