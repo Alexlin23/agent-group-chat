@@ -24,6 +24,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from event_buffer import EventBuffer, format_sse
 from graph import run_agent_task
+from message_bus import MessageBus, MessageBusManager
 
 # ── Config ────────────────────────────────────────────────────────────────────
 HERMES_API_URL = os.getenv("HERMES_API_URL", "http://127.0.0.1:8642")
@@ -77,6 +78,7 @@ conversations: dict[str, dict] = {}
 active_tasks: dict[str, asyncio.Task] = {}       # conv_id → running asyncio.Task
 active_buffers: dict[str, EventBuffer] = {}       # conv_id → current EventBuffer
 conversation_locks: dict[str, asyncio.Lock] = {}  # conv_id → lock
+bus_manager = MessageBusManager(DATA_DIR)         # shared message state
 
 
 def _get_lock(conv_id: str) -> asyncio.Lock:
@@ -170,6 +172,9 @@ async def startup():
     global agents, conversations
     agents = _load_agents()
     conversations = _load_conversations()
+    # Initialize MessageBus for each conversation
+    for cid, conv in conversations.items():
+        await bus_manager.get_or_create(cid, conv.get("messages", []))
     # Reset any stale streaming flags from previous runs
     for conv in conversations.values():
         if conv.get("is_streaming"):
@@ -254,6 +259,7 @@ async def create_conversation(req: ConversationCreate):
     }
     conversations[cid] = conv
     _save_conversation(conv)
+    await bus_manager.get_or_create(cid)
     return conv
 
 
@@ -273,6 +279,7 @@ async def delete_conversation(conv_id: str):
         active_tasks[conv_id].cancel()
     active_tasks.pop(conv_id, None)
     active_buffers.pop(conv_id, None)
+    bus_manager.remove(conv_id)
     del conversations[conv_id]
     _delete_conversation_file(conv_id)
     return {"ok": True}
@@ -321,16 +328,15 @@ async def send_message(conv_id: str, req: MessageRequest):
         if tid not in agents:
             raise HTTPException(400, f"Unknown agent: {tid}")
 
-    # Store user message
-    conv = conversations[conv_id]
+    # Store user message via MessageBus
+    bus = await bus_manager.get_or_create(conv_id, conversations[conv_id].get("messages", []))
     user_msg = {
         "role": "user",
         "content": req.content,
         "agent_id": None,
-        "timestamp": datetime.now().isoformat(),
     }
-    conv["messages"].append(user_msg)
-    _save_conversation(conv)
+    await bus.append(user_msg)
+    conversations[conv_id]["messages"] = bus.messages
 
     # Create EventBuffer and start background task
     buffer = EventBuffer()
@@ -344,15 +350,15 @@ async def send_message(conv_id: str, req: MessageRequest):
                     user_message=req.content,
                     target_ids=target_ids,
                     agents=agents,
-                    existing_messages=list(conv["messages"]),
+                    existing_messages=bus.get_snapshot(),
                     hermes_url=HERMES_API_URL,
                     hermes_key=HERMES_API_KEY,
                     event_buffer=buffer,
                 )
-                # Persist new messages
+                # Persist new messages via MessageBus
                 if new_messages:
-                    conv["messages"].extend(new_messages)
-                    _save_conversation(conv)
+                    await bus.append_batch(new_messages)
+                    conversations[conv_id]["messages"] = bus.messages
             except Exception as e:
                 buffer.push("error", {"error": str(e)[:300]})
                 buffer.close()
