@@ -22,6 +22,19 @@ class MessageBus:
         self.messages: list[dict] = list(initial_messages or [])
         self._write_lock = asyncio.Lock()
         self._sequence = len(self.messages)  # monotonic sequence number
+        self._name = conv_id  # default name, updated from persisted data
+        self._created_at = datetime.now().isoformat()
+
+        # Try to load metadata from existing file
+        fp = data_dir / f"{conv_id}.json"
+        if fp.exists():
+            try:
+                with open(fp, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                self._name = data.get("name", conv_id)
+                self._created_at = data.get("created_at", self._created_at)
+            except (json.JSONDecodeError, KeyError):
+                pass
 
     def get_snapshot(self) -> list[dict]:
         """Get a copy of current messages (for agent workers)."""
@@ -66,19 +79,6 @@ class MessageBus:
             "created_at": self._created_at,
             "messages": self.messages,
         }
-        # Read existing metadata if available
-        if fp.exists():
-            try:
-                with open(fp, "r", encoding="utf-8") as f:
-                    existing = json.load(f)
-                conv_data["name"] = existing.get("name", self.conv_id)
-                conv_data["created_at"] = existing.get("created_at", "")
-            except (json.JSONDecodeError, KeyError):
-                pass
-        else:
-            conv_data["name"] = self._name if hasattr(self, '_name') else self.conv_id
-            conv_data["created_at"] = self._created_at if hasattr(self, '_created_at') else datetime.now().isoformat()
-
         with open(fp, "w", encoding="utf-8") as f:
             json.dump(conv_data, f, ensure_ascii=False, indent=2)
 
