@@ -703,6 +703,10 @@ function tryConnectStream(convId) {
     const agent = state.agents.find(a => a.id === evt.agent_id);
     if (!agent) return;
 
+    // Remove "processing..." placeholder
+    const indicator = document.getElementById('sending-indicator');
+    if (indicator) indicator.remove();
+
     const taskId = evt.task_id || `${evt.agent_id}_0`;
 
     // Add streaming placeholder to messages
@@ -902,6 +906,16 @@ async function _sendToBackend(content) {
   if (state.convData) state.convData.messages.push(userMsg);
   renderMessages();
 
+  // Show "processing..." placeholder immediately (before stream connects)
+  state.isStreaming = true;
+  state.streamingConv = targetConvId;
+  const placeholder = document.createElement('div');
+  placeholder.id = 'sending-indicator';
+  placeholder.style.cssText = 'text-align:center;font-size:12px;color:var(--text-dim);padding:8px 0;opacity:0.7';
+  placeholder.textContent = '正在处理...';
+  document.getElementById('messages').appendChild(placeholder);
+  scrollToBottom();
+
   // Auto-rename on first message
   const conv = state.conversations.find(c => c.id === targetConvId);
   if (conv && conv.name === '新对话' && state.convData && state.convData.messages.length <= 1) {
@@ -915,8 +929,6 @@ async function _sendToBackend(content) {
   // Parse targets
   const targets = parseTargetsFromText(content);
 
-  state.isStreaming = true;
-  state.streamingConv = targetConvId;
   updateSendBtn();
 
   try {
