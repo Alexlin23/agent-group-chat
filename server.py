@@ -344,22 +344,24 @@ async def send_message(conv_id: str, req: MessageRequest):
     buffer = EventBuffer()
     active_buffers[conv_id] = buffer
 
-    async def _run():
+    async def _run(my_buffer=buffer):
         try:
             await orchestrator.process_message(
                 conv_id=conv_id,
                 user_message=req.content,
                 target_ids=target_ids,
                 bus=bus,
-                event_buffer=buffer,
+                event_buffer=my_buffer,
             )
             # Sync messages back to conversations dict
             conversations[conv_id]["messages"] = bus.messages
         except Exception as e:
-            buffer.push("error", {"error": str(e)[:300]})
-            buffer.close()
+            my_buffer.push("error", {"error": str(e)[:300]})
+            my_buffer.close()
         finally:
-            active_buffers.pop(conv_id, None)
+            # Only remove if we still own the buffer (new task may have replaced it)
+            if active_buffers.get(conv_id) is my_buffer:
+                active_buffers.pop(conv_id, None)
 
     task = asyncio.create_task(_run())
     active_tasks[conv_id] = task
