@@ -570,6 +570,11 @@ async function selectConversation(id) {
     state.convCache[id] = state.convData;
   }
 
+  // Clear stale streaming markers from loaded data
+  if (state.convData) {
+    state.convData.messages.forEach(m => { delete m._streaming; delete m._task_id; });
+  }
+
   renderConvList();
   renderMessages();
   enableInput(!state.isStreaming);
