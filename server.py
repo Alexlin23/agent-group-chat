@@ -177,11 +177,15 @@ async def startup():
     for cid, conv in conversations.items():
         await bus_manager.get_or_create(cid, conv.get("messages", []))
     # Initialize Orchestrator
+    # workflow_agents: agent IDs that use LangGraph (rigorous pipeline)
+    # Currently empty — set specific agent IDs here when needed
+    # e.g., workflow_agents={"code_reviewer"} to run code review via LangGraph
     orchestrator = Orchestrator(
         agents=agents,
         hermes_url=HERMES_API_URL,
         hermes_key=HERMES_API_KEY,
         max_concurrent=3,
+        workflow_agents=set(),  # add agent IDs here for LangGraph mode
     )
     # Reset any stale streaming flags from previous runs
     for conv in conversations.values():
