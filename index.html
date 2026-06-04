@@ -588,8 +588,13 @@ async function selectConversation(id) {
   document.getElementById('chat-status').textContent = `${state.convData.messages.length} 条消息`;
   localStorage.setItem('agent-chat-last-conv', id);
 
-  // If a task might be running for this conversation, try connecting to stream
-  tryConnectStream(id);
+  // Only connect to stream if a task is actually running
+  try {
+    const taskStatus = await api.get(`/api/conversations/${id}/task_status`);
+    if (taskStatus.status === 'running') {
+      tryConnectStream(id);
+    }
+  } catch {}
 }
 
 async function deleteConversation(id) {
@@ -712,6 +717,13 @@ function tryConnectStream(convId) {
 
     // Skip if already tracking this stream (prevent duplicate on reconnect)
     if (state.streamingAgents.has(taskId)) return;
+
+    // Skip if this agent already has a response in the conversation (reconnect race)
+    const msgs = getTargetMessages();
+    const alreadyHasResponse = msgs.some(m =>
+      m.role === 'assistant' && m.agent_id === evt.agent_id && !m._streaming
+    );
+    if (alreadyHasResponse) return;
 
     // Remove "processing..." placeholder
     const indicator = document.getElementById('sending-indicator');
@@ -980,8 +992,7 @@ function setupMentionAutocomplete() {
   const dropdown = document.getElementById('mention-dropdown');
 
   input.addEventListener('input', () => {
-    hasManualHeight = false;
-    autoResize(input);
+    if (!hasManualHeight) autoResize(input);
     checkMention();
   });
 
@@ -1118,7 +1129,8 @@ function autoResize(textarea) {
   if (isDragging) return;
   textarea.style.height = 'auto';
   const maxH = parseInt(getComputedStyle(document.querySelector('.input-area')).getPropertyValue('--auto-max'));
-  textarea.style.height = Math.min(textarea.scrollHeight, maxH) + 'px';
+  const effectiveMax = hasManualHeight ? Math.max(maxH, parseInt(localStorage.getItem(INPUT_HEIGHT_KEY) || 0)) : maxH;
+  textarea.style.height = Math.min(textarea.scrollHeight, effectiveMax) + 'px';
 }
 
 (function setupResizeHandle() {
@@ -1153,6 +1165,7 @@ function autoResize(textarea) {
     document.removeEventListener('mousemove', onDrag);
     document.removeEventListener('mouseup', onDragEnd);
     localStorage.setItem(INPUT_HEIGHT_KEY, textarea.offsetHeight);
+    hasManualHeight = true;
     // Restore auto-max so autoResize can take over again
     textarea.style.maxHeight = '';
   }
