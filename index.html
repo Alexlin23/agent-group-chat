@@ -41,7 +41,16 @@ button{font-family:inherit;cursor:pointer}
 .app{display:flex;height:100vh;overflow:hidden}
 
 /* ── Sidebar ───────────────────────────────────────────────── */
-.sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:var(--bg-alt);border-right:1px solid var(--border);display:flex;flex-direction:column;transition:background 0.2s,border-color 0.2s}
+.sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:var(--bg-alt);border-right:1px solid var(--border);display:flex;flex-direction:column;transition:width 0.2s ease,min-width 0.2s ease,background 0.2s,border-color 0.2s}
+.sidebar.collapsed{width:48px;min-width:48px}
+.sidebar.collapsed .sidebar-header h2{display:none}
+.sidebar.collapsed .sidebar-header{justify-content:center;padding:12px 8px}
+.sidebar.collapsed .theme-toggle{display:none}
+.sidebar.collapsed .sidebar-section{display:none}
+.sidebar.collapsed .sidebar-footer span:not(.dot){display:none}
+.sidebar.collapsed .sidebar-footer{justify-content:center;padding:12px 8px}
+.sidebar-toggle{background:none;border:none;color:var(--text-dim);font-size:18px;padding:4px 8px;border-radius:6px;cursor:pointer;line-height:1;transition:background 0.15s}
+.sidebar-toggle:hover{background:var(--bg-hover);color:var(--text)}
 .sidebar-header{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .sidebar-header h2{font-size:14px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px}
 .sidebar-header button{background:none;border:none;color:var(--text-dim);font-size:20px;padding:2px 6px;border-radius:4px}
@@ -189,6 +198,7 @@ button{font-family:inherit;cursor:pointer}
   <!-- Sidebar -->
   <div class="sidebar">
     <div class="sidebar-header">
+      <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" title="收起/展开侧边栏">☰</button>
       <h2>Chats</h2>
       <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切换日间/夜间模式">🌙</button>
     </div>
@@ -300,10 +310,29 @@ function toggleTheme() {
   applyTheme(current === 'dark' ? 'light' : 'dark');
 }
 
+// ── Sidebar Collapse ──────────────────────────────────────
+const SIDEBAR_KEY = 'agent-chat-sidebar-collapsed';
+
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const collapsed = sidebar.classList.toggle('collapsed');
+  localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0');
+}
+
+function restoreSidebar() {
+  const saved = localStorage.getItem(SIDEBAR_KEY);
+  if (saved === '1') {
+    document.querySelector('.sidebar').classList.add('collapsed');
+  }
+}
+
 async function init() {
   // Restore theme preference
   const savedTheme = localStorage.getItem(THEME_KEY) || 'dark';
   applyTheme(savedTheme);
+
+  // Restore sidebar state
+  restoreSidebar();
 
   await loadAgents();
   await loadConversations();
