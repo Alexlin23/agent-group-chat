@@ -703,11 +703,14 @@ function tryConnectStream(convId) {
     const agent = state.agents.find(a => a.id === evt.agent_id);
     if (!agent) return;
 
+    const taskId = evt.task_id || `${evt.agent_id}_0`;
+
+    // Skip if already tracking this stream (prevent duplicate on reconnect)
+    if (state.streamingAgents.has(taskId)) return;
+
     // Remove "processing..." placeholder
     const indicator = document.getElementById('sending-indicator');
     if (indicator) indicator.remove();
-
-    const taskId = evt.task_id || `${evt.agent_id}_0`;
 
     // Add streaming placeholder to messages
     const msgs = getTargetMessages();
@@ -1062,6 +1065,7 @@ function selectMention(agent) {
   input.selectionStart = input.selectionEnd = atPos + agent.name.length + 2;
   input.focus();
   document.getElementById('mention-dropdown').classList.remove('show');
+  autoResize(input);
 }
 
 // ── Helpers ─────────────────────────────────────────────────
