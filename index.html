@@ -298,8 +298,7 @@ let state = {
   mentionIndex: -1,
   filteredAgents: [],
   activeEventSource: null,   // current EventSource connection
-  currentAgentId: null,      // agent currently being streamed
-  currentResponse: '',       // accumulated response text
+  streamingAgents: new Map(), // key: taskId, value: {agentId, response, element}
 };
 
 const COLORS = ['#4FC3F7','#81C784','#FFB74D','#CE93D8','#F06292','#4DD0E1','#AED581','#FFD54F','#BCAAA4','#90CAF9','#EF5350','#AB47BC','#26A69A','#FF7043','#5C6BC0','#66BB6A','#EC407A','#29B6F6'];
@@ -685,8 +684,7 @@ function disconnectStream() {
     state.activeEventSource.close();
     state.activeEventSource = null;
   }
-  state.currentAgentId = null;
-  state.currentResponse = '';
+  state.streamingAgents.clear();
 }
 
 function tryConnectStream(convId) {
@@ -705,35 +703,46 @@ function tryConnectStream(convId) {
     const agent = state.agents.find(a => a.id === evt.agent_id);
     if (!agent) return;
 
-    state.currentAgentId = evt.agent_id;
-    state.currentResponse = '';
+    const taskId = evt.task_id || `${evt.agent_id}_0`;
 
     // Add streaming placeholder to messages
     const msgs = getTargetMessages();
     msgs.push({
-      role: 'assistant', content: '', agent_id: evt.agent_id, _streaming: true,
+      role: 'assistant', content: '', agent_id: evt.agent_id, _streaming: true, _task_id: taskId,
     });
 
     // Create streaming UI
-    const container = createStreamingEl(agent);
+    const container = createStreamingEl(agent, taskId);
     document.getElementById('messages').appendChild(container);
+
+    // Track this stream
+    state.streamingAgents.set(taskId, {
+      agentId: evt.agent_id,
+      response: '',
+      element: container,
+    });
+
     scrollToBottom();
   });
 
   es.addEventListener('text', (e) => {
     const evt = JSON.parse(e.data);
-    state.currentResponse += evt.text;
+    const taskId = evt.task_id || `${evt.agent_id}_0`;
+    const stream = state.streamingAgents.get(taskId);
+    if (!stream) return;
+
+    stream.response += evt.text;
 
     // Update streaming placeholder in messages
     const msgs = getTargetMessages();
-    const placeholder = msgs.findLast(m => m._streaming && m.agent_id === evt.agent_id);
-    if (placeholder) placeholder.content = state.currentResponse;
+    const placeholder = msgs.findLast(m => m._streaming && m._task_id === taskId);
+    if (placeholder) placeholder.content = stream.response;
 
     // Update DOM
-    const container = document.querySelector(`[data-stream-agent="${evt.agent_id}"][data-stream-active="true"]`);
+    const container = stream.element;
     const textEl = container ? container.querySelector('.streaming-text') : null;
     if (textEl) {
-      textEl.innerHTML = renderMarkdown(state.currentResponse);
+      textEl.innerHTML = renderMarkdown(stream.response);
       textEl.classList.add('streaming-cursor');
     }
     scrollToBottom();
@@ -741,16 +750,19 @@ function tryConnectStream(convId) {
 
   es.addEventListener('agent_done', (e) => {
     const evt = JSON.parse(e.data);
+    const taskId = evt.task_id || `${evt.agent_id}_0`;
+    const stream = state.streamingAgents.get(taskId);
 
     // Remove cursor
-    const container = document.querySelector(`[data-stream-agent="${evt.agent_id}"][data-stream-active="true"]`);
-    const textEl = container ? container.querySelector('.streaming-text') : null;
-    if (textEl) textEl.classList.remove('streaming-cursor');
-    if (container) container.removeAttribute('data-stream-active');
+    if (stream && stream.element) {
+      const textEl = stream.element.querySelector('.streaming-text');
+      if (textEl) textEl.classList.remove('streaming-cursor');
+      stream.element.removeAttribute('data-stream-active');
+    }
 
     // Replace streaming placeholder with final message
     const msgs = getTargetMessages();
-    const idx = msgs.findLastIndex(m => m._streaming && m.agent_id === evt.agent_id);
+    const idx = msgs.findLastIndex(m => m._streaming && m._task_id === taskId);
     if (idx >= 0) {
       if (evt.full_response) {
         msgs[idx] = { role: 'assistant', content: evt.full_response, agent_id: evt.agent_id };
@@ -759,8 +771,8 @@ function tryConnectStream(convId) {
       }
     }
 
-    state.currentAgentId = null;
-    state.currentResponse = '';
+    // Clean up tracking
+    state.streamingAgents.delete(taskId);
   });
 
   es.addEventListener('mention_trigger', (e) => {
@@ -779,15 +791,16 @@ function tryConnectStream(convId) {
   es.addEventListener('error', (e) => {
     if (e.data) {
       const evt = JSON.parse(e.data);
-      const container = document.querySelector(`[data-stream-active="true"]`);
-      const textEl = container ? container.querySelector('.streaming-text') : null;
-      if (textEl) {
-        textEl.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(evt.error)}</span>`;
-        textEl.classList.remove('streaming-cursor');
+      // Show error on the most recent active stream
+      const lastStream = [...state.streamingAgents.values()].pop();
+      if (lastStream && lastStream.element) {
+        const textEl = lastStream.element.querySelector('.streaming-text');
+        if (textEl) {
+          textEl.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(evt.error)}</span>`;
+          textEl.classList.remove('streaming-cursor');
+        }
       }
     }
-    // EventSource auto-reconnects on network errors
-    // But if the server closed the stream (no_task), we should close
     if (es.readyState === EventSource.CLOSED) {
       onStreamEnd();
     }
@@ -811,10 +824,13 @@ function onStreamEnd() {
   state.isStreaming = false;
   state.streamingConv = null;
 
-  // Finalize: clear all _streaming markers
+  // Finalize: clear all _streaming markers and remove _task_id
   if (state.convData) {
-    state.convData.messages.forEach(m => { delete m._streaming; });
+    state.convData.messages.forEach(m => { delete m._streaming; delete m._task_id; });
   }
+
+  // Clear any remaining active stream markers in DOM
+  document.querySelectorAll('[data-stream-active]').forEach(el => el.removeAttribute('data-stream-active'));
 
   // Update UI
   if (state.currentConv) {
@@ -846,10 +862,11 @@ function getTargetMessages() {
   return [];
 }
 
-function createStreamingEl(agent) {
+function createStreamingEl(agent, taskId) {
   const div = document.createElement('div');
   div.className = 'msg agent-msg';
   div.setAttribute('data-stream-agent', agent.id);
+  div.setAttribute('data-stream-task', taskId || '');
   div.setAttribute('data-stream-active', 'true');
   div.innerHTML = `
     <div class="msg-avatar" style="background:${agent.color}20;color:${agent.color}">${agent.avatar}</div>
