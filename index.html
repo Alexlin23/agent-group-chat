@@ -298,9 +298,10 @@ let state = {
   mentionIndex: -1,
   filteredAgents: [],
   activeEventSource: null,   // current EventSource connection
-  streamingAgents: new Map(), // key: taskId, value: {agentId, response, element}
+  streamingAgents: new Map(), // key: taskId, value: {agentId, response}
+  lastEventId: -1,           // last received event ID
+  convStreamingStates: {},   // convId → {streamingAgents, lastEventId} saved per conversation
 };
-
 const COLORS = ['#4FC3F7','#81C784','#FFB74D','#CE93D8','#F06292','#4DD0E1','#AED581','#FFD54F','#BCAAA4','#90CAF9','#EF5350','#AB47BC','#26A69A','#FF7043','#5C6BC0','#66BB6A','#EC407A','#29B6F6'];
 
 // ── API ─────────────────────────────────────────────────────
@@ -543,6 +544,14 @@ async function selectConversation(id) {
     else deleteDraft(state.currentConv);
   }
 
+  // Save current streaming state before switching
+  if (state.currentConv) {
+    state.convStreamingStates[state.currentConv] = {
+      streamingAgents: new Map(state.streamingAgents),
+      lastEventId: state.lastEventId,
+    };
+  }
+
   // Save current conv data to cache
   if (state.currentConv && state.convData) {
     state.convCache[state.currentConv] = state.convData;
@@ -553,6 +562,15 @@ async function selectConversation(id) {
 
   state.currentConv = id;
 
+  // Restore streaming state for this conversation
+  const savedState = state.convStreamingStates[id];
+  if (savedState) {
+    state.streamingAgents = savedState.streamingAgents;
+    state.lastEventId = savedState.lastEventId;
+  } else {
+    state.streamingAgents = new Map();
+    state.lastEventId = -1;
+  }
   // Load from cache or server
   if (state.convCache[id]) {
     state.convData = state.convCache[id];
@@ -568,11 +586,6 @@ async function selectConversation(id) {
   } else {
     state.convData = await api.get(`/api/conversations/${id}`);
     state.convCache[id] = state.convData;
-  }
-
-  // Clear stale streaming markers from loaded data
-  if (state.convData) {
-    state.convData.messages.forEach(m => { delete m._streaming; delete m._task_id; });
   }
 
   renderConvList();
@@ -694,7 +707,7 @@ function disconnectStream() {
     state.activeEventSource.close();
     state.activeEventSource = null;
   }
-  state.streamingAgents.clear();
+  // Don't clear streamingAgents or lastEventId — they're saved per conversation
 }
 
 function tryConnectStream(convId) {
@@ -704,12 +717,13 @@ function tryConnectStream(convId) {
     state.activeEventSource = null;
   }
 
-  const url = `/api/conversations/${convId}/stream`;
+  const url = `/api/conversations/${convId}/stream?last_id=${state.lastEventId}`;
   const es = new EventSource(url);
   state.activeEventSource = es;
 
   es.addEventListener('agent_start', (e) => {
     const evt = JSON.parse(e.data);
+    if (evt.id !== undefined) state.lastEventId = evt.id;
     const agent = state.agents.find(a => a.id === evt.agent_id);
     if (!agent) return;
 
@@ -718,38 +732,37 @@ function tryConnectStream(convId) {
     // Skip if already tracking this stream (prevent duplicate on reconnect)
     if (state.streamingAgents.has(taskId)) return;
 
-    // Skip if this agent already has a response in the conversation (reconnect race)
-    const msgs = getTargetMessages();
-    const alreadyHasResponse = msgs.some(m =>
-      m.role === 'assistant' && m.agent_id === evt.agent_id && !m._streaming
-    );
-    if (alreadyHasResponse) return;
-
     // Remove "processing..." placeholder
     const indicator = document.getElementById('sending-indicator');
     if (indicator) indicator.remove();
 
-    // Add streaming placeholder to messages
-    msgs.push({
-      role: 'assistant', content: '', agent_id: evt.agent_id, _streaming: true, _task_id: taskId,
-    });
+    // Add streaming placeholder to messages (only if not already present)
+    const msgs = getTargetMessages();
+    const existingIdx = msgs.findIndex(m => m._streaming && m._task_id === taskId);
+    if (existingIdx < 0) {
+      msgs.push({
+        role: 'assistant', content: '', agent_id: evt.agent_id, _streaming: true, _task_id: taskId,
+      });
+    }
 
-    // Create streaming UI
-    const container = createStreamingEl(agent, taskId);
-    document.getElementById('messages').appendChild(container);
+    // Create streaming UI (only if DOM element doesn't exist)
+    let container = document.querySelector(`[data-stream-task="${taskId}"]`);
+    if (!container) {
+      container = createStreamingEl(agent, taskId);
+      document.getElementById('messages').appendChild(container);
+    }
 
-    // Track this stream
+    // Track this stream (without DOM reference — find by attribute)
     state.streamingAgents.set(taskId, {
       agentId: evt.agent_id,
-      response: '',
-      element: container,
+      response: existingIdx >= 0 ? (msgs[existingIdx].content || '') : '',
     });
 
     scrollToBottom();
   });
-
   es.addEventListener('text', (e) => {
     const evt = JSON.parse(e.data);
+    if (evt.id !== undefined) state.lastEventId = evt.id;
     const taskId = evt.task_id || `${evt.agent_id}_0`;
     const stream = state.streamingAgents.get(taskId);
     if (!stream) return;
@@ -761,8 +774,8 @@ function tryConnectStream(convId) {
     const placeholder = msgs.findLast(m => m._streaming && m._task_id === taskId);
     if (placeholder) placeholder.content = stream.response;
 
-    // Update DOM
-    const container = stream.element;
+    // Update DOM (find by attribute, not stale reference)
+    const container = document.querySelector(`[data-stream-task="${taskId}"]`);
     const textEl = container ? container.querySelector('.streaming-text') : null;
     if (textEl) {
       textEl.innerHTML = renderMarkdown(stream.response);
@@ -770,17 +783,18 @@ function tryConnectStream(convId) {
     }
     scrollToBottom();
   });
-
   es.addEventListener('agent_done', (e) => {
     const evt = JSON.parse(e.data);
+    if (evt.id !== undefined) state.lastEventId = evt.id;
     const taskId = evt.task_id || `${evt.agent_id}_0`;
     const stream = state.streamingAgents.get(taskId);
 
-    // Remove cursor
-    if (stream && stream.element) {
-      const textEl = stream.element.querySelector('.streaming-text');
+    // Remove cursor (find by attribute)
+    const container = document.querySelector(`[data-stream-task="${taskId}"]`);
+    if (container) {
+      const textEl = container.querySelector('.streaming-text');
       if (textEl) textEl.classList.remove('streaming-cursor');
-      stream.element.removeAttribute('data-stream-active');
+      container.removeAttribute('data-stream-active');
     }
 
     // Replace streaming placeholder with final message
@@ -815,12 +829,15 @@ function tryConnectStream(convId) {
     if (e.data) {
       const evt = JSON.parse(e.data);
       // Show error on the most recent active stream
-      const lastStream = [...state.streamingAgents.values()].pop();
-      if (lastStream && lastStream.element) {
-        const textEl = lastStream.element.querySelector('.streaming-text');
-        if (textEl) {
-          textEl.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(evt.error)}</span>`;
-          textEl.classList.remove('streaming-cursor');
+      const lastTaskId = [...state.streamingAgents.keys()].pop();
+      if (lastTaskId) {
+        const container = document.querySelector(`[data-stream-task="${lastTaskId}"]`);
+        if (container) {
+          const textEl = container.querySelector('.streaming-text');
+          if (textEl) {
+            textEl.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(evt.error)}</span>`;
+            textEl.classList.remove('streaming-cursor');
+          }
         }
       }
     }
@@ -846,6 +863,13 @@ function onStreamEnd() {
   disconnectStream();
   state.isStreaming = false;
   state.streamingConv = null;
+
+  // Clear streaming state for this conversation
+  if (state.currentConv) {
+    delete state.convStreamingStates[state.currentConv];
+  }
+  state.streamingAgents.clear();
+  state.lastEventId = -1;
 
   // Finalize: clear all _streaming markers and remove _task_id
   if (state.convData) {
