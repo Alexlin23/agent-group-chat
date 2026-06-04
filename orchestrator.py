@@ -201,6 +201,10 @@ class Orchestrator:
         self._active_workers.pop(conv_id, None)
         self._cancel_flags.pop(conv_id, None)
 
+    def cut_mention_chain(self, conv_id: str):
+        """Cut @mention chain only — let current workers finish, but don't spawn new ones."""
+        self._cancel_flags[conv_id] = True
+
     def cancel_chain(self, conv_id: str):
         """Cancel all active workers and @mention chain for a conversation."""
         self._cancel_flags[conv_id] = True

@@ -341,8 +341,8 @@ async def send_message(conv_id: str, req: MessageRequest):
     await bus.append(user_msg)
     conversations[conv_id]["messages"] = bus.messages
 
-    # Cancel any existing chain for this conversation
-    orchestrator.cancel_chain(conv_id)
+    # Cut old @mention chain (let current agents finish, don't spawn new ones)
+    orchestrator.cut_mention_chain(conv_id)
 
     # Create EventBuffer and start background task
     buffer = EventBuffer()
