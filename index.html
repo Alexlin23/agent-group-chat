@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Group Chat</title>
+<style>
+/* ── Reset & Base ──────────────────────────────────────────── */
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:        #0d1117;
+  --bg-alt:    #161b22;
+  --bg-card:   #1c2128;
+  --bg-hover:  #262c36;
+  --border:    #30363d;
+  --text:      #e6edf3;
+  --text-dim:  #8b949e;
+  --accent:    #58a6ff;
+  --danger:    #f85149;
+  --success:   #3fb950;
+  --radius:    8px;
+  --sidebar-w: 240px;
+}
+:root[data-theme="light"]{
+  --bg:        #ffffff;
+  --bg-alt:    #f6f8fa;
+  --bg-card:   #ffffff;
+  --bg-hover:  #eaeef2;
+  --border:    #d0d7de;
+  --text:      #1f2328;
+  --text-dim:  #656d76;
+  --accent:    #0969da;
+  --danger:    #cf222e;
+  --success:   #1a7f37;
+}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);transition:background 0.2s,color 0.2s}
+a{color:var(--accent);text-decoration:none}
+button{font-family:inherit;cursor:pointer}
+
+/* ── Layout ────────────────────────────────────────────────── */
+.app{display:flex;height:100vh;overflow:hidden}
+
+/* ── Sidebar ───────────────────────────────────────────────── */
+.sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:var(--bg-alt);border-right:1px solid var(--border);display:flex;flex-direction:column;transition:background 0.2s,border-color 0.2s}
+.sidebar-header{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.sidebar-header h2{font-size:14px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px}
+.sidebar-header button{background:none;border:none;color:var(--text-dim);font-size:20px;padding:2px 6px;border-radius:4px}
+.sidebar-header button:hover{background:var(--bg-hover);color:var(--text)}
+.theme-toggle{background:none;border:none;font-size:18px;padding:4px 8px;border-radius:6px;cursor:pointer;line-height:1;transition:background 0.15s,transform 0.2s}
+.theme-toggle:hover{background:var(--bg-hover);transform:rotate(30deg)}
+
+.sidebar-section{padding:8px}
+.sidebar-section-title{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;padding:8px 8px 4px}
+
+/* Conversation list */
+.conv-item{display:flex;align-items:center;padding:8px 12px;border-radius:var(--radius);cursor:pointer;font-size:13px;color:var(--text-dim);gap:8px;position:relative}
+.conv-item:hover{background:var(--bg-hover);color:var(--text)}
+.conv-item.active{background:var(--bg-card);color:var(--text)}
+.conv-item .conv-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conv-item .conv-delete{opacity:0;background:none;border:none;color:var(--danger);font-size:14px;padding:2px 4px;border-radius:3px}
+.conv-item:hover .conv-delete{opacity:0.6}
+.conv-item .conv-delete:hover{opacity:1;background:rgba(248,81,73,0.1)}
+.conv-item .conv-rename{opacity:0;background:none;border:none;color:var(--text-dim);font-size:12px;padding:2px 4px;border-radius:3px}
+.conv-item:hover .conv-rename{opacity:0.6}
+.conv-item .conv-rename:hover{opacity:1;background:var(--bg-hover)}
+.new-conv-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px;margin:4px 8px;border-radius:var(--radius);border:1px dashed var(--border);color:var(--text-dim);font-size:13px;background:none;width:calc(100% - 16px)}
+.new-conv-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Agent list */
+.agent-item{display:flex;align-items:center;padding:6px 12px;border-radius:var(--radius);font-size:13px;gap:8px;cursor:default}
+.agent-item .agent-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.agent-item .agent-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agent-item .agent-edit{opacity:0;background:none;border:none;color:var(--text-dim);font-size:12px;padding:2px 4px;border-radius:3px}
+.agent-item:hover .agent-edit{opacity:0.6}
+.agent-item .agent-edit:hover{opacity:1;background:var(--bg-hover)}
+.new-agent-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:6px;margin:4px 8px;border-radius:var(--radius);border:1px dashed var(--border);color:var(--text-dim);font-size:12px;background:none;width:calc(100% - 16px)}
+.new-agent-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+.sidebar-footer{margin-top:auto;padding:12px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:6px}
+.sidebar-footer .dot{width:6px;height:6px;border-radius:50%;background:var(--success)}
+
+/* ── Main Chat Area ────────────────────────────────────────── */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.chat-header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;background:var(--bg-alt);transition:background 0.2s,border-color 0.2s}
+.chat-header h1{font-size:15px;font-weight:600}
+.chat-header .status{font-size:12px;color:var(--text-dim)}
+
+.messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:4px}
+.messages::-webkit-scrollbar{width:6px}
+.messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* Message bubbles */
+.msg{display:flex;gap:10px;max-width:85%;animation:fadeIn 0.2s}
+.msg.user-msg{align-self:flex-end;flex-direction:row-reverse}
+.msg.agent-msg{align-self:flex-start}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.msg-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;margin-top:2px}
+
+.msg-body{display:flex;flex-direction:column;gap:4px}
+.msg-meta{font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:6px}
+.msg-meta .name{font-weight:600}
+.msg-content{padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.6;word-break:break-word;white-space:pre-wrap}
+.msg-content p{margin:0 0 8px}
+.msg-content p:last-child{margin-bottom:0}
+.msg-content code{background:rgba(110,118,129,0.2);padding:2px 5px;border-radius:3px;font-size:13px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace}
+.msg-content pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;overflow-x:auto;margin:8px 0;font-size:13px;line-height:1.5}
+.msg-content pre code{background:none;padding:0}
+.msg-content ul,.msg-content ol{padding-left:20px;margin:4px 0}
+.msg-content li{margin:2px 0}
+.msg-content blockquote{border-left:3px solid var(--border);padding-left:12px;color:var(--text-dim);margin:8px 0}
+.msg-content strong{color:var(--text)}
+.msg-content em{color:var(--text-dim)}
+.msg-content h1,.msg-content h2,.msg-content h3{margin:12px 0 6px;font-weight:600}
+.msg-content h1{font-size:18px}
+.msg-content h2{font-size:16px}
+.msg-content h3{font-size:14px}
+
+.msg-content .mention{color:var(--accent);font-weight:600}
+
+.user-msg .msg-content{background:var(--accent);color:#fff}
+.user-msg .msg-meta{justify-content:flex-end}
+
+/* Typing indicator */
+.typing{display:flex;gap:10px;align-self:flex-start;animation:fadeIn 0.2s}
+.typing .msg-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px}
+.typing-body{display:flex;flex-direction:column;gap:4px}
+.typing-dots{display:flex;gap:4px;padding:10px 14px;background:var(--bg-card);border-radius:12px}
+.typing-dots span{width:6px;height:6px;border-radius:50%;background:var(--text-dim);animation:bounce 1.2s infinite}
+.typing-dots span:nth-child(2){animation-delay:0.2s}
+.typing-dots span:nth-child(3){animation-delay:0.4s}
+@keyframes bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-4px)}}
+
+/* Streaming text cursor */
+.streaming-cursor::after{content:'▋';animation:blink 1s step-end infinite;color:var(--accent)}
+@keyframes blink{50%{opacity:0}}
+
+/* Empty state */
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-dim);gap:12px}
+.empty-state .icon{font-size:48px;opacity:0.5}
+.empty-state p{font-size:14px}
+
+/* ── Input Area ────────────────────────────────────────────── */
+.input-area{padding:12px 20px 16px;border-top:1px solid var(--border);background:var(--bg-alt);position:relative;transition:background 0.2s,border-color 0.2s}
+.input-wrapper{display:flex;gap:8px;align-items:flex-end}
+.input-field{flex:1;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:10px 14px;font-size:14px;color:var(--text);resize:none;font-family:inherit;line-height:1.5;max-height:150px;min-height:42px;outline:none;overflow-y:auto}
+.input-field:focus{border-color:var(--accent)}
+.input-field::placeholder{color:var(--text-dim)}
+.send-btn{background:var(--accent);border:none;color:#fff;width:42px;height:42px;border-radius:50%;font-size:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity 0.15s}
+.send-btn:hover{opacity:0.85}
+.send-btn:disabled{opacity:0.3;cursor:not-allowed}
+
+/* @mention autocomplete */
+.mention-dropdown{position:absolute;bottom:100%;left:20px;right:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);max-height:200px;overflow-y:auto;display:none;z-index:100;box-shadow:0 -4px 12px rgba(0,0,0,0.3)}
+.mention-dropdown.show{display:block}
+.mention-item{display:flex;align-items:center;padding:8px 12px;gap:8px;cursor:pointer;font-size:13px}
+.mention-item:hover,.mention-item.selected{background:var(--bg-hover)}
+.mention-item .m-avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px}
+.mention-item .m-name{font-weight:500}
+.mention-item .m-id{color:var(--text-dim);font-size:11px}
+
+/* ── Modal ─────────────────────────────────────────────────── */
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:200}
+.modal-overlay.show{display:flex}
+.modal{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:24px;width:420px;max-width:90vw;max-height:90vh;overflow-y:auto}
+.modal h3{font-size:16px;margin-bottom:16px}
+.modal label{display:block;font-size:12px;color:var(--text-dim);margin:12px 0 4px;text-transform:uppercase;letter-spacing:0.5px}
+.modal input,.modal textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px;color:var(--text);font-family:inherit;outline:none}
+.modal input:focus,.modal textarea:focus{border-color:var(--accent)}
+.modal textarea{min-height:350px;resize:vertical;line-height:1.5}
+.prompt-resize-hint{position:absolute;bottom:2px;right:8px;font-size:10px;color:var(--text-dim);opacity:0;pointer-events:none;transition:opacity 0.2s}
+#agent-prompt:focus ~ .prompt-resize-hint{opacity:0.6}
+.modal .color-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.modal .color-swatch{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:border-color 0.15s,box-shadow 0.15s,transform 0.15s}
+.modal .color-swatch:hover{border-color:var(--text)}
+.modal .color-swatch.selected{border-color:#fff;box-shadow:0 0 0 3px rgba(255,255,255,0.35);transform:scale(1.15)}
+.modal .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.modal .btn{padding:8px 16px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px}
+.modal .btn:hover{background:var(--bg-hover)}
+.modal .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.modal .btn-primary:hover{opacity:0.85}
+.modal .btn-danger{background:var(--danger);border-color:var(--danger);color:#fff}
+.modal .btn-danger:hover{opacity:0.85}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>Chats</h2>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切换日间/夜间模式">🌙</button>
+    </div>
+
+    <div class="sidebar-section" style="flex:1;overflow-y:auto">
+      <button class="new-conv-btn" onclick="createConversation()">+ 新建对话</button>
+      <div id="conv-list"></div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Agents</div>
+      <div id="agent-list"></div>
+      <button class="new-agent-btn" onclick="showAgentModal()">+ 添加Agent</button>
+    </div>
+
+    <div class="sidebar-footer">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">连接中...</span>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="chat-header">
+      <h1 id="chat-title">Agent Group Chat</h1>
+      <span class="status" id="chat-status"></span>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="empty-state" id="empty-state">
+        <div class="icon">💬</div>
+        <p>选择或新建一个对话开始</p>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="mention-dropdown" id="mention-dropdown"></div>
+      <div class="input-wrapper">
+        <textarea class="input-field" id="input" placeholder="输入消息... 用 @名字 指定agent" rows="1" disabled></textarea>
+        <button class="send-btn" id="send-btn" onclick="sendMessage()" disabled>➤</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Agent Modal -->
+<div class="modal-overlay" id="agent-modal">
+  <div class="modal">
+    <h3 id="agent-modal-title">添加Agent</h3>
+    <label>名称</label>
+    <input type="text" id="agent-name" placeholder="例: 架构师">
+    <label>ID (英文, 用于@提及)</label>
+    <input type="text" id="agent-id" placeholder="例: architect">
+    <label>头像 (emoji)</label>
+    <input type="text" id="agent-avatar" placeholder="例: 🏗" maxlength="4" value="🤖">
+    <label>颜色</label>
+    <div class="color-row" id="color-row"></div>
+    <label>System Prompt</label>
+    <div style="position:relative">
+      <textarea id="agent-prompt" placeholder="定义这个agent的角色和行为..."></textarea>
+      <span class="prompt-resize-hint">拖拽右下角调整大小 · 双击重置</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="agent-delete-btn" style="display:none;margin-right:auto" onclick="deleteAgent()">删除</button>
+      <button class="btn" onclick="hideAgentModal()">取消</button>
+      <button class="btn btn-primary" id="agent-save-btn" onclick="saveAgent()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ───────────────────────────────────────────────────
+let state = {
+  agents: [],
+  conversations: [],
+  currentConv: null,
+  convData: null,
+  convCache: {},     // per-conversation data cache {convId: {messages: [...]}}
+  // drafts now persisted in localStorage (key prefix: 'draft-')
+  streamingConv: null, // conversation ID currently being streamed
+  isStreaming: false,
+  messageQueue: [],   // messages queued while streaming
+  editingAgentId: null,
+  mentionIndex: -1,
+  filteredAgents: [],
+};
+
+const COLORS = ['#4FC3F7','#81C784','#FFB74D','#CE93D8','#F06292','#4DD0E1','#AED581','#FFD54F','#BCAAA4','#90CAF9','#EF5350','#AB47BC','#26A69A','#FF7043','#5C6BC0','#66BB6A','#EC407A','#29B6F6'];
+
+// ── API ─────────────────────────────────────────────────────
+const api = {
+  async get(url) { return (await fetch(url)).json() },
+  async post(url, body) { return (await fetch(url, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json() },
+  async put(url, body) { return (await fetch(url, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json() },
+  async del(url) { return (await fetch(url, {method:'DELETE'})).json() },
+};
+
+// ── Init ────────────────────────────────────────────────────
+const THEME_KEY = 'agent-chat-theme';
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  document.getElementById('theme-toggle').textContent = theme === 'light' ? '☀️' : '🌙';
+  localStorage.setItem(THEME_KEY, theme);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+async function init() {
+  // Restore theme preference
+  const savedTheme = localStorage.getItem(THEME_KEY) || 'dark';
+  applyTheme(savedTheme);
+
+  await loadAgents();
+  await loadConversations();
+  checkHealth();
+  renderColorPicker();
+  initPromptResize();
+
+  // Restore last active conversation
+  const lastConv = localStorage.getItem('agent-chat-last-conv');
+  if (lastConv && state.conversations.find(c => c.id === lastConv)) {
+    await selectConversation(lastConv);
+  }
+}
+
+// ── Prompt Resize Persistence ───────────────────────────────
+const PROMPT_HEIGHT_KEY = 'agent-prompt-height';
+const PROMPT_DEFAULT_HEIGHT = 350;
+
+function initPromptResize() {
+  const ta = document.getElementById('agent-prompt');
+  if (!ta) return;
+
+  // Restore saved height
+  const saved = localStorage.getItem(PROMPT_HEIGHT_KEY);
+  if (saved) {
+    ta.style.height = saved + 'px';
+  }
+
+  // Save on resize (native resize:vertical fires this)
+  const ro = new ResizeObserver(entries => {
+    for (const entry of entries) {
+      const h = Math.round(entry.contentRect.height);
+      if (h > 100) { // ignore collapse
+        localStorage.setItem(PROMPT_HEIGHT_KEY, h);
+      }
+    }
+  });
+  ro.observe(ta);
+
+  // Double-click to reset
+  ta.addEventListener('dblclick', () => {
+    ta.style.height = PROMPT_DEFAULT_HEIGHT + 'px';
+    localStorage.removeItem(PROMPT_HEIGHT_KEY);
+  });
+}
+
+async function checkHealth() {
+  try {
+    const h = await api.get('/api/health');
+    const dot = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    if (h.hermes_api) {
+      dot.style.background = 'var(--success)';
+      text.textContent = `已连接 · ${h.agents} agents`;
+    } else {
+      dot.style.background = 'var(--danger)';
+      text.textContent = 'Hermes API 未连接';
+    }
+  } catch {
+    document.getElementById('status-dot').style.background = 'var(--danger)';
+    document.getElementById('status-text').textContent = '服务不可用';
+  }
+}
+
+// ── Agents ──────────────────────────────────────────────────
+async function loadAgents() {
+  state.agents = await api.get('/api/agents');
+  renderAgentList();
+}
+
+function renderAgentList() {
+  const el = document.getElementById('agent-list');
+  el.innerHTML = state.agents.map(a => `
+    <div class="agent-item">
+      <div class="agent-avatar" style="background:${a.color}20;color:${a.color}">${a.avatar}</div>
+      <span class="agent-name">${esc(a.name)}</span>
+      <button class="agent-edit" onclick="showAgentModal('${a.id}')">✎</button>
+    </div>
+  `).join('');
+}
+
+function showAgentModal(agentId) {
+  const modal = document.getElementById('agent-modal');
+  const title = document.getElementById('agent-modal-title');
+  const delBtn = document.getElementById('agent-delete-btn');
+
+  if (agentId) {
+    const a = state.agents.find(x => x.id === agentId);
+    if (!a) return;
+    state.editingAgentId = agentId;
+    title.textContent = '编辑Agent';
+    delBtn.style.display = 'block';
+    document.getElementById('agent-name').value = a.name;
+    document.getElementById('agent-id').value = a.id;
+    document.getElementById('agent-id').disabled = true;
+    document.getElementById('agent-avatar').value = a.avatar;
+    document.getElementById('agent-prompt').value = a.system_prompt;
+    selectColor(a.color);
+  } else {
+    state.editingAgentId = null;
+    title.textContent = '添加Agent';
+    delBtn.style.display = 'none';
+    document.getElementById('agent-name').value = '';
+    document.getElementById('agent-id').value = '';
+    document.getElementById('agent-id').disabled = false;
+    document.getElementById('agent-avatar').value = '🤖';
+    document.getElementById('agent-prompt').value = '';
+    selectColor(COLORS[state.agents.length % COLORS.length]);
+  }
+  modal.classList.add('show');
+}
+
+function hideAgentModal() {
+  document.getElementById('agent-modal').classList.remove('show');
+}
+
+async function saveAgent() {
+  const name = document.getElementById('agent-name').value.trim();
+  const id = document.getElementById('agent-id').value.trim();
+  const avatar = document.getElementById('agent-avatar').value.trim() || '🤖';
+  const prompt = document.getElementById('agent-prompt').value.trim();
+  const color = document.querySelector('.color-swatch.selected')?.dataset.color || COLORS[0];
+
+  if (!name || !id) return alert('名称和ID不能为空');
+
+  if (state.editingAgentId) {
+    await api.put(`/api/agents/${state.editingAgentId}`, { name, color, avatar, system_prompt: prompt });
+  } else {
+    try {
+      await api.post('/api/agents', { id, name, color, avatar, system_prompt: prompt });
+    } catch (e) {
+      return alert('ID已存在或创建失败');
+    }
+  }
+  hideAgentModal();
+  await loadAgents();
+}
+
+async function deleteAgent() {
+  if (!state.editingAgentId) return;
+  if (!confirm('确定删除这个Agent？')) return;
+  await api.del(`/api/agents/${state.editingAgentId}`);
+  hideAgentModal();
+  await loadAgents();
+}
+
+function renderColorPicker() {
+  const row = document.getElementById('color-row');
+  row.innerHTML = COLORS.map(c => `<div class="color-swatch" style="background:${c}" data-color="${c}" onclick="selectColor('${c}')"></div>`).join('');
+  selectColor(COLORS[0]);
+}
+
+function selectColor(color) {
+  document.querySelectorAll('.color-swatch').forEach(el => {
+    el.classList.toggle('selected', el.dataset.color === color);
+  });
+}
+
+// ── Conversations ───────────────────────────────────────────
+async function loadConversations() {
+  state.conversations = await api.get('/api/conversations');
+  renderConvList();
+}
+
+function renderConvList() {
+  const el = document.getElementById('conv-list');
+  el.innerHTML = state.conversations.map(c => `
+    <div class="conv-item ${state.currentConv === c.id ? 'active' : ''}" onclick="selectConversation('${c.id}')">
+      <span class="conv-name">${esc(c.name)}</span>
+      <button class="conv-rename" onclick="event.stopPropagation();renameConversation('${c.id}')" title="改名">✎</button>
+      <button class="conv-delete" onclick="event.stopPropagation();deleteConversation('${c.id}')">✕</button>
+    </div>
+  `).join('');
+}
+
+async function createConversation() {
+  const conv = await api.post('/api/conversations', { name: '新对话' });
+  await loadConversations();
+  selectConversation(conv.id);
+}
+
+// Draft persistence via localStorage
+function saveDraft(convId, text) {
+  localStorage.setItem('draft-' + convId, text);
+}
+function loadDraft(convId) {
+  return localStorage.getItem('draft-' + convId) || '';
+}
+function deleteDraft(convId) {
+  localStorage.removeItem('draft-' + convId);
+}
+
+async function selectConversation(id) {
+  // Save current input draft before switching
+  if (state.currentConv) {
+    const inputEl = document.getElementById('input');
+    const text = inputEl.value;
+    console.log(`[DRAFT] Saving draft for ${state.currentConv}: "${text}" (length=${text.length})`);
+    if (text) {
+      saveDraft(state.currentConv, text);
+    } else {
+      deleteDraft(state.currentConv);
+    }
+  }
+
+  // Save current conversation data to cache before switching
+  if (state.currentConv && state.convData) {
+    state.convCache[state.currentConv] = state.convData;
+  }
+
+  state.currentConv = id;
+
+  // Use cached data if available (preserves in-flight streaming data)
+  if (state.convCache[id]) {
+    state.convData = state.convCache[id];
+    // Also refresh from server to get any persisted data
+    try {
+      const serverData = await api.get(`/api/conversations/${id}`);
+      // Merge: keep cached messages that aren't on the server yet
+      const serverMsgCount = serverData.messages.length;
+      const cachedMsgCount = state.convData.messages.length;
+      if (cachedMsgCount > serverMsgCount) {
+        // Cached has more messages (from streaming) - keep cached
+      } else {
+        state.convData = serverData;
+        state.convCache[id] = serverData;
+      }
+    } catch {}
+  } else {
+    state.convData = await api.get(`/api/conversations/${id}`);
+    state.convCache[id] = state.convData;
+  }
+
+  renderConvList();
+
+  renderMessages();
+  enableInput(!state.isStreaming);
+
+  // Restore draft for this conversation
+  const inputEl = document.getElementById('input');
+  const restoredText = loadDraft(id);
+  console.log(`[DRAFT] Restoring draft for ${id}: "${restoredText}"`);
+  inputEl.value = restoredText;
+  autoResize(inputEl);
+
+  document.getElementById('chat-title').textContent = state.convData.name;
+  document.getElementById('chat-status').textContent = `${state.convData.messages.length} 条消息`;
+  localStorage.setItem('agent-chat-last-conv', id);
+}
+
+async function deleteConversation(id) {
+  if (!confirm('确定删除这个对话？')) return;
+  await api.del(`/api/conversations/${id}`);
+  delete state.convCache[id];
+  deleteDraft(id);
+  if (localStorage.getItem('agent-chat-last-conv') === id) {
+    localStorage.removeItem('agent-chat-last-conv');
+  }
+  if (state.currentConv === id) {
+    state.currentConv = null;
+    state.convData = null;
+    renderMessages();
+    enableInput(false);
+    document.getElementById('chat-title').textContent = 'Agent Group Chat';
+    document.getElementById('chat-status').textContent = '';
+  }
+  await loadConversations();
+}
+
+async function renameConversation(id) {
+  const conv = state.conversations.find(c => c.id === id);
+  if (!conv) return;
+  const newName = prompt('输入新名称:', conv.name);
+  if (!newName || newName.trim() === conv.name) return;
+  await api.put(`/api/conversations/${id}`, { name: newName.trim() });
+  // If renaming the current conversation, update the header
+  if (state.currentConv === id) {
+    document.getElementById('chat-title').textContent = newName.trim();
+    if (state.convData) state.convData.name = newName.trim();
+  }
+  await loadConversations();
+}
+
+// ── Messages ────────────────────────────────────────────────
+function renderMessages() {
+  const el = document.getElementById('messages');
+  const empty = document.getElementById('empty-state');
+
+  if (!state.convData || !state.convData.messages.length) {
+    el.innerHTML = '';
+    el.appendChild(createEmptyState());
+    return;
+  }
+
+  el.innerHTML = '';
+  for (const msg of state.convData.messages) {
+    el.appendChild(createMessageEl(msg));
+  }
+  scrollToBottom();
+}
+
+function createEmptyState() {
+  const div = document.createElement('div');
+  div.className = 'empty-state';
+  div.innerHTML = '<div class="icon">💬</div><p>输入消息开始小组讨论</p><p style="font-size:12px;opacity:0.6">用 @名字 指定回复的agent，不加@则全体回复</p>';
+  return div;
+}
+
+function createMessageEl(msg) {
+  const isUser = msg.role === 'user';
+  const agent = isUser ? null : state.agents.find(a => a.id === msg.agent_id);
+  const color = agent ? agent.color : '#888';
+  const avatar = agent ? agent.avatar : '👤';
+  const name = isUser ? '你' : (agent ? agent.name : 'Agent');
+  const isStreaming = !!msg._streaming;
+
+  const div = document.createElement('div');
+  div.className = `msg ${isUser ? 'user-msg' : 'agent-msg'}`;
+  // For streaming messages (re-rendered after conversation switch), restore active attributes
+  // so text event rebind via querySelector can find the correct DOM element
+  if (isStreaming && !isUser && agent) {
+    div.setAttribute('data-stream-agent', agent.id);
+    div.setAttribute('data-stream-active', 'true');
+  }
+  const contentHtml = isUser ? highlightMentions(esc(msg.content)) : renderMarkdown(msg.content || '');
+  const cursorClass = isStreaming ? ' streaming-cursor' : '';
+  div.innerHTML = `
+    <div class="msg-avatar" style="background:${isUser ? 'var(--accent)' : color}20;color:${isUser ? 'var(--accent)' : color}">${isUser ? '👤' : avatar}</div>
+    <div class="msg-body">
+      <div class="msg-meta"><span class="name" style="color:${isUser ? 'var(--accent)' : color}">${esc(name)}</span></div>
+      <div class="msg-content streaming-text${cursorClass}" style="${isUser ? '' : `border-left:3px solid ${color}30`}">${contentHtml}</div>
+    </div>
+  `;
+  return div;
+}
+
+function highlightMentions(text) {
+  return text.replace(/@(\S+)/g, (match, name) => {
+    const agent = state.agents.find(a => a.name === name || a.id === name);
+    if (agent) return `<span class="mention" style="color:${agent.color}">@${esc(name)}</span>`;
+    return match;
+  });
+}
+
+// ── Streaming ───────────────────────────────────────────────
+async function sendMessage() {
+  const input = document.getElementById('input');
+  const content = input.value.trim();
+  if (!content || !state.currentConv) return;
+
+  // If streaming, queue the message
+  if (state.isStreaming) {
+    state.messageQueue.push({ content, convId: state.currentConv });
+    input.value = '';
+    autoResize(input);
+    deleteDraft(state.currentConv);
+    return;
+  }
+
+  input.value = '';
+  autoResize(input);
+  deleteDraft(state.currentConv);
+
+  await _sendToBackend(content);
+}
+
+async function _sendToBackend(content) {
+  // Capture target conversation to prevent cross-conversation pollution during streaming
+  const targetConvId = state.currentConv;
+  const getTargetMessages = () => {
+    if (state.currentConv === targetConvId && state.convData) return state.convData.messages;
+    const cached = state.convCache[targetConvId];
+    return cached ? cached.messages : [];
+  };
+  const isViewingTarget = () => state.currentConv === targetConvId;
+
+  // Add user message to UI immediately
+  const userMsg = { role: 'user', content, agent_id: null };
+  getTargetMessages().push(userMsg);
+  if (isViewingTarget()) renderMessages();
+
+  // Auto-rename conversation on first message
+  const conv = state.conversations.find(c => c.id === targetConvId);
+  if (conv && conv.name === '新对话' && getTargetMessages().length <= 1) {
+    const newName = content.replace(/^@\S+\s*/, '').substring(0, 30) || content.substring(0, 30);
+    conv.name = newName;
+    api.put(`/api/conversations/${targetConvId}`, { name: newName }).catch(() => {});
+    if (isViewingTarget()) {
+      document.getElementById('chat-title').textContent = newName;
+      renderConvList();
+    }
+  }
+
+  // Parse targets
+  const targets = parseTargetsFromText(content);
+
+  state.isStreaming = true;
+  state.streamingConv = state.currentConv;
+  updateSendBtn();
+
+  try {
+    const resp = await fetch(`/api/conversations/${state.currentConv}/message`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ content, targets }),
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentTextEl = null;
+    let currentResponse = '';
+    let currentAgentId = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const evt = JSON.parse(line);
+
+          if (evt.type === 'agent_start') {
+            // Always create a NEW container for each agent response
+            const agent = state.agents.find(a => a.id === evt.agent_id);
+            if (agent) {
+              if (isViewingTarget()) {
+                const container = createStreamingEl(agent);
+                document.getElementById('messages').appendChild(container);
+                currentTextEl = container.querySelector('.streaming-text');
+                if (currentTextEl) currentTextEl.classList.add('streaming-cursor');
+              } else {
+                currentTextEl = null;
+              }
+              currentResponse = '';
+              currentAgentId = evt.agent_id;
+              // Push streaming placeholder into convData so it survives conversation switch
+              getTargetMessages().push({
+                role: 'assistant',
+                content: '',
+                agent_id: evt.agent_id,
+                _streaming: true,
+              });
+            }
+          }
+          else if (evt.type === 'text' && evt.agent_id) {
+            currentResponse += evt.text;
+            // Rebind currentTextEl if null (switched away) or disconnected (DOM rebuilt)
+            if (!currentTextEl || !currentTextEl.isConnected) {
+              const container = document.querySelector(`[data-stream-agent="${currentAgentId}"][data-stream-active="true"]`);
+              currentTextEl = container ? container.querySelector('.streaming-text') : null;
+            }
+            if (currentTextEl) {
+              currentTextEl.innerHTML = renderMarkdown(currentResponse);
+              currentTextEl.classList.add('streaming-cursor');
+            }
+            // Also update the placeholder message in convData
+            const placeholder = getTargetMessages().findLast(
+              m => m._streaming && m.agent_id === currentAgentId
+            );
+            if (placeholder) placeholder.content = currentResponse;
+            if (isViewingTarget()) scrollToBottom();
+          }
+          else if (evt.type === 'agent_done') {
+            if (currentTextEl) {
+              currentTextEl.classList.remove('streaming-cursor');
+              // Remove active marker so rebind won't match completed messages
+              const container = currentTextEl.closest('.msg');
+              if (container) container.removeAttribute('data-stream-active');
+            }
+            // Find and replace the streaming placeholder instead of pushing a new message
+            {
+              const msgs = getTargetMessages();
+              const idx = msgs.findLastIndex(
+                m => m._streaming && m.agent_id === evt.agent_id
+              );
+              if (idx >= 0) {
+                if (currentResponse) {
+                  msgs[idx] = { role: 'assistant', content: currentResponse, agent_id: evt.agent_id };
+                } else {
+                  // Empty response — remove orphan placeholder entirely
+                  msgs.splice(idx, 1);
+                }
+              } else if (currentResponse) {
+                msgs.push({ role: 'assistant', content: currentResponse, agent_id: evt.agent_id });
+              }
+            }
+            currentAgentId = null;
+          }
+          else if (evt.type === 'mention_trigger') {
+            // Agent @mentioned another agent - show a system message
+            if (isViewingTarget()) {
+              const fromAgent = state.agents.find(a => a.id === evt.from_agent);
+              const toAgent = state.agents.find(a => a.id === evt.to_agent);
+              if (fromAgent && toAgent) {
+                const sysDiv = document.createElement('div');
+                sysDiv.style.cssText = 'text-align:center;font-size:12px;color:var(--text-dim);padding:4px 0;opacity:0.7';
+                sysDiv.innerHTML = `${fromAgent.avatar} <span style="color:${fromAgent.color}">${esc(fromAgent.name)}</span> @了 <span style="color:${toAgent.color}">${esc(toAgent.name)}</span>`;
+                document.getElementById('messages').appendChild(sysDiv);
+              }
+              scrollToBottom();
+            }
+          }
+          else if (evt.type === 'error') {
+            if (currentTextEl) {
+              currentTextEl.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(evt.error)}</span>`;
+              currentTextEl.classList.remove('streaming-cursor');
+              const container = currentTextEl.closest('.msg');
+              if (container) container.removeAttribute('data-stream-active');
+            }
+            // P2: Clear _streaming marker on error
+            if (currentAgentId) {
+              const msgs = getTargetMessages();
+              const idx = msgs.findLastIndex(
+                m => m._streaming && m.agent_id === currentAgentId
+              );
+              if (idx >= 0) delete msgs[idx]._streaming;
+              currentAgentId = null;
+            }
+          }
+          else if (evt.type === 'done') {
+            // P3: Defensive cleanup - clear any remaining _streaming markers and active attrs
+            getTargetMessages().forEach(m => { delete m._streaming; });
+            document.querySelectorAll('[data-stream-active]').forEach(el => el.removeAttribute('data-stream-active'));
+            if (isViewingTarget()) renderMessages();
+          }
+        } catch {}
+      }
+    }
+  } catch (err) {
+    console.error('Stream error:', err);
+    // P2: Clear streaming markers on unexpected errors
+    getTargetMessages().forEach(m => { delete m._streaming; });
+    document.querySelectorAll('[data-stream-active]').forEach(el => el.removeAttribute('data-stream-active'));
+  }
+
+  state.isStreaming = false;
+  state.streamingConv = null;
+  // Update cache for the target conversation (not necessarily current view)
+  if (isViewingTarget() && state.convData) {
+    state.convCache[targetConvId] = state.convData;
+    document.getElementById('chat-status').textContent = `${state.convData.messages.length} 条消息`;
+    renderMessages();
+  }
+  updateSendBtn();
+
+  // Process next queued message
+  if (state.messageQueue.length > 0) {
+    const next = state.messageQueue.shift();
+    // Switch to the conversation if different
+    if (next.convId !== state.currentConv) {
+      await selectConversation(next.convId);
+    }
+    // Re-trigger send with queued content
+    await _sendToBackend(next.content);
+  }
+}
+
+function createStreamingEl(agent) {
+  const div = document.createElement('div');
+  div.className = 'msg agent-msg';
+  div.setAttribute('data-stream-agent', agent.id);
+  div.setAttribute('data-stream-active', 'true');
+  div.innerHTML = `
+    <div class="msg-avatar" style="background:${agent.color}20;color:${agent.color}">${agent.avatar}</div>
+    <div class="msg-body">
+      <div class="msg-meta"><span class="name" style="color:${agent.color}">${esc(agent.name)}</span></div>
+      <div class="msg-content streaming-text" style="border-left:3px solid ${agent.color}30">
+        <div class="typing-dots"><span></span><span></span><span></span></div>
+      </div>
+    </div>
+  `;
+  return div;
+}
+
+function parseTargetsFromText(text) {
+  const nameToId = {};
+  for (const a of state.agents) {
+    nameToId[a.name] = a.id;
+    nameToId[a.id] = a.id;
+  }
+  const pattern = /@(\S+)/g;
+  const found = [];
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    const id = nameToId[match[1]];
+    if (id && !found.includes(id)) found.push(id);
+  }
+  return found.length > 0 ? found : state.agents.map(a => a.id);
+}
+
+// ── @mention Autocomplete ───────────────────────────────────
+function setupMentionAutocomplete() {
+  const input = document.getElementById('input');
+  const dropdown = document.getElementById('mention-dropdown');
+
+  input.addEventListener('input', () => {
+    autoResize(input);
+    checkMention();
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (dropdown.classList.contains('show')) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        state.mentionIndex = Math.min(state.mentionIndex + 1, state.filteredAgents.length - 1);
+        renderMentionDropdown();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        state.mentionIndex = Math.max(state.mentionIndex - 1, 0);
+        renderMentionDropdown();
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (state.mentionIndex >= 0 && state.filteredAgents.length > 0) {
+          e.preventDefault();
+          selectMention(state.filteredAgents[state.mentionIndex]);
+        }
+      } else if (e.key === 'Escape') {
+        dropdown.classList.remove('show');
+      }
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // Click outside to close
+  document.addEventListener('click', (e) => {
+    if (!dropdown.contains(e.target) && e.target !== input) {
+      dropdown.classList.remove('show');
+    }
+  });
+}
+
+function checkMention() {
+  const input = document.getElementById('input');
+  const val = input.value;
+  const pos = input.selectionStart;
+
+  // Find @ before cursor
+  const before = val.slice(0, pos);
+  const atMatch = before.match(/@(\S*)$/);
+
+  if (atMatch) {
+    const query = atMatch[1].toLowerCase();
+    state.filteredAgents = state.agents.filter(a =>
+      a.name.toLowerCase().includes(query) || a.id.toLowerCase().includes(query)
+    );
+    if (state.filteredAgents.length > 0) {
+      state.mentionIndex = 0;
+      renderMentionDropdown();
+      document.getElementById('mention-dropdown').classList.add('show');
+      return;
+    }
+  }
+  document.getElementById('mention-dropdown').classList.remove('show');
+}
+
+function renderMentionDropdown() {
+  const el = document.getElementById('mention-dropdown');
+  el.innerHTML = state.filteredAgents.map((a, i) => `
+    <div class="mention-item ${i === state.mentionIndex ? 'selected' : ''}" data-index="${i}">
+      <div class="m-avatar" style="background:${a.color}20;color:${a.color}">${a.avatar}</div>
+      <span class="m-name">${esc(a.name)}</span>
+      <span class="m-id">@${esc(a.id)}</span>
+    </div>
+  `).join('');
+
+  // pointerdown event delegation — replaces broken inline onmousedown with JSON in attributes
+  el.onpointerdown = (e) => {
+    const item = e.target.closest('.mention-item');
+    if (!item) return;
+    e.preventDefault();
+    const idx = parseInt(item.dataset.index, 10);
+    if (!isNaN(idx) && state.filteredAgents[idx]) {
+      selectMention(state.filteredAgents[idx]);
+    }
+  };
+}
+
+function selectMention(agent) {
+  if (typeof agent === 'string') agent = JSON.parse(agent);
+  const input = document.getElementById('input');
+  const val = input.value;
+  const pos = input.selectionStart;
+  const before = val.slice(0, pos);
+  const after = val.slice(pos);
+  const atPos = before.lastIndexOf('@');
+  const newVal = before.slice(0, atPos) + '@' + agent.name + ' ' + after;
+  input.value = newVal;
+  input.selectionStart = input.selectionEnd = atPos + agent.name.length + 2;
+  input.focus();
+  document.getElementById('mention-dropdown').classList.remove('show');
+}
+
+// ── Helpers ─────────────────────────────────────────────────
+function esc(s) {
+  const el = document.createElement('span');
+  el.textContent = s;
+  return el.innerHTML;
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = esc(text);
+
+  // Code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `<pre><code>${code}</code></pre>`);
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Blockquote
+  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+  // Unordered list
+  html = html.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  // Ordered list
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  // Paragraphs (double newline)
+  html = html.replace(/\n\n/g, '</p><p>');
+  // Single newline
+  html = html.replace(/\n/g, '<br>');
+  // Wrap in paragraph
+  if (!html.startsWith('<')) html = '<p>' + html + '</p>';
+
+  // Highlight @mentions
+  html = html.replace(/@(\S+)/g, (match, name) => {
+    const agent = state.agents.find(a => a.name === name || a.id === name);
+    if (agent) return `<span class="mention" style="color:${agent.color}">@${esc(name)}</span>`;
+    return match;
+  });
+
+  return html;
+}
+
+function scrollToBottom() {
+  const el = document.getElementById('messages');
+  el.scrollTop = el.scrollHeight;
+}
+
+function autoResize(textarea) {
+  textarea.style.height = 'auto';
+  textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px';
+}
+
+function enableInput(enabled) {
+  document.getElementById('input').disabled = !enabled;
+  document.getElementById('send-btn').disabled = !enabled || state.isStreaming;
+}
+
+function updateSendBtn() {
+  document.getElementById('send-btn').disabled = !state.currentConv;
+}
+
+// ── Boot ────────────────────────────────────────────────────
+init();
+setupMentionAutocomplete();
+</script>
+</body>
+</html>
