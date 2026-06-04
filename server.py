@@ -76,7 +76,7 @@ conversations: dict[str, dict] = {}
 
 # Per-conversation runtime state
 active_tasks: dict[str, asyncio.Task] = {}       # conv_id → running asyncio.Task
-active_buffers: dict[str, EventBuffer] = {}       # conv_id → current EventBuffer
+active_buffers: dict[str, EventBuffer] = {}       # conv_id → shared EventBuffer per conversation
 conversation_locks: dict[str, asyncio.Lock] = {}  # conv_id → lock
 bus_manager = MessageBusManager(DATA_DIR)         # shared message state
 orchestrator: Optional[Orchestrator] = None       # initialized on startup
@@ -344,9 +344,11 @@ async def send_message(conv_id: str, req: MessageRequest):
     # Cut old @mention chain (let current agents finish, don't spawn new ones)
     orchestrator.cut_mention_chain(conv_id)
 
-    # Create EventBuffer and start background task
-    buffer = EventBuffer()
-    active_buffers[conv_id] = buffer
+    # Get or create shared EventBuffer for this conversation
+    buffer = active_buffers.get(conv_id)
+    if buffer is None or not buffer.is_active:
+        buffer = EventBuffer()
+        active_buffers[conv_id] = buffer
 
     async def _run(my_buffer=buffer):
         try:
@@ -363,8 +365,8 @@ async def send_message(conv_id: str, req: MessageRequest):
             my_buffer.push("error", {"error": str(e)[:300]})
             my_buffer.close()
         finally:
-            # Only remove if we still own the buffer (new task may have replaced it)
-            if active_buffers.get(conv_id) is my_buffer:
+            # Only remove if we still own the buffer and no tasks are running
+            if active_buffers.get(conv_id) is my_buffer and conv_id not in active_tasks:
                 active_buffers.pop(conv_id, None)
 
     task = asyncio.create_task(_run())
