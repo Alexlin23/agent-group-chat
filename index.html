@@ -730,7 +730,6 @@ function tryConnectStream(convId) {
     if (indicator) indicator.remove();
 
     // Add streaming placeholder to messages
-    const msgs = getTargetMessages();
     msgs.push({
       role: 'assistant', content: '', agent_id: evt.agent_id, _streaming: true, _task_id: taskId,
     });
