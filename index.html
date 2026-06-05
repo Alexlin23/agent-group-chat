@@ -590,7 +590,7 @@ async function selectConversation(id) {
 
   renderConvList();
   renderMessages();
-  enableInput(!state.convStreamingStates[id]);
+  enableInput(true);
 
   // Restore draft
   const inputEl = document.getElementById('input');
