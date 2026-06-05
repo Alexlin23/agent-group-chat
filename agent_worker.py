@@ -6,6 +6,7 @@ and writing back when done. No dependency on other workers.
 
 import asyncio
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from event_buffer import EventBuffer
@@ -16,6 +17,21 @@ from text_utils import (
     extract_mentioned_agents,
     MAX_MENTION_DEPTH,
 )
+
+_SKILL_CACHE = None
+
+
+def _load_project_skill() -> str:
+    """Load the project skill file (cached)."""
+    global _SKILL_CACHE
+    if _SKILL_CACHE is not None:
+        return _SKILL_CACHE
+    skill_path = Path(__file__).parent / ".hermes" / "skills" / "agent-group-chat.md"
+    if skill_path.exists():
+        _SKILL_CACHE = skill_path.read_text(encoding="utf-8") + "\n\n"
+    else:
+        _SKILL_CACHE = ""
+    return _SKILL_CACHE
 
 
 class AgentWorker:
@@ -64,8 +80,10 @@ class AgentWorker:
 
         # Build system prompt
         context_text = build_context_text(self.snapshot, self.agents)
+        skill_text = _load_project_skill()
         system_prompt = (
             f"{agent['system_prompt']}\n\n"
+            f"{skill_text}"
             f"---\n以下是完整的对话历史（包含所有参与者）：\n\n{context_text}\n---\n\n"
             f"请以 [{agent['name']}] 的身份回复最后一条消息。"
             f"你的回复会自动添加到对话中，不需要加 [{agent['name']}] 前缀。"

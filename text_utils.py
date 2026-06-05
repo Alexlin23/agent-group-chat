@@ -11,11 +11,19 @@ def build_context_text(messages: list[dict], agents: dict) -> str:
     """Build a formatted conversation history string for agent prompts."""
     lines = []
     for msg in messages:
+        ts = ''
+        if msg.get('timestamp'):
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(msg['timestamp'])
+                ts = f" [{dt.strftime('%H:%M')}]"
+            except (ValueError, TypeError):
+                pass
         if msg["role"] == "user":
-            lines.append(f"[用户]: {msg['content']}")
+            lines.append(f"[用户{ts}]: {msg['content']}")
         elif msg["role"] == "assistant":
             aname = agents.get(msg.get("agent_id", ""), {}).get("name", "Agent")
-            lines.append(f"[{aname}]: {msg['content']}")
+            lines.append(f"[{aname}{ts}]: {msg['content']}")
     return "\n\n".join(lines) if lines else "(暂无对话历史)"
 
 

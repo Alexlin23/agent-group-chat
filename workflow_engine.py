@@ -6,11 +6,27 @@ Executes task flows as strict linear pipelines with variable passing.
 
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from event_buffer import EventBuffer
 from hermes_client import stream_hermes
 from text_utils import build_context_text, strip_agent_prefix
+
+_SKILL_CACHE = None
+
+
+def _load_project_skill() -> str:
+    """Load the project skill file (cached)."""
+    global _SKILL_CACHE
+    if _SKILL_CACHE is not None:
+        return _SKILL_CACHE
+    skill_path = Path(__file__).parent / ".hermes" / "skills" / "agent-group-chat.md"
+    if skill_path.exists():
+        _SKILL_CACHE = skill_path.read_text(encoding="utf-8") + "\n\n"
+    else:
+        _SKILL_CACHE = ""
+    return _SKILL_CACHE
 
 
 def _render_template(template: str, variables: dict[str, str]) -> str:
@@ -45,15 +61,13 @@ async def execute_step(
     prompt_template = step.get("prompt_template", "")
     rendered_prompt = _render_template(prompt_template, variables)
 
-    # Build context from conversation history
-    context_text = build_context_text(messages, agent if isinstance(agent, dict) else {})
-
     # Build full agents dict for context builder
     agents_dict = {agent["id"]: agent}
     context_text = build_context_text(messages, agents_dict)
 
     system_prompt = (
         f"{agent.get('system_prompt', '')}\n\n"
+        f"{_load_project_skill()}"
         f"---\n任务步骤: {step_name}\n---\n\n"
         f"{rendered_prompt}"
     )
