@@ -4,3 +4,6 @@ __pycache__/
 *.bak
 *.bak.*
 conversations/
+task_flows/
+task_flow_runs/
+.flow_js.b64

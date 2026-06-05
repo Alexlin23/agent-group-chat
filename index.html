@@ -207,6 +207,59 @@ button{font-family:inherit;cursor:pointer}
 .toast-info{background:var(--accent)}
 @keyframes toastIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
 @keyframes toastOut{to{opacity:0;transform:translateY(-8px)}}
+
+/* ── Task Flows ──────────────────────────────────────────── */
+.new-flow-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:6px;margin:4px 8px;border-radius:var(--radius);border:1px dashed var(--border);color:var(--text-dim);font-size:12px;background:none;width:calc(100% - 16px)}
+.new-flow-btn:hover{border-color:var(--accent);color:var(--accent)}
+.flow-item{display:flex;align-items:center;padding:6px 12px;border-radius:var(--radius);font-size:13px;gap:8px;cursor:pointer;color:var(--text-dim)}
+.flow-item:hover{background:var(--bg-hover);color:var(--text)}
+.flow-item.active{background:var(--bg-card);color:var(--text)}
+.flow-item .flow-icon{font-size:16px;flex-shrink:0}
+.flow-item .flow-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flow-item .flow-delete{opacity:0;background:none;border:none;color:var(--danger);font-size:14px;padding:2px 4px;border-radius:3px}
+.flow-item:hover .flow-delete{opacity:0.6}
+.flow-item .flow-delete:hover{opacity:1;background:rgba(248,81,73,0.1)}
+.flow-view{display:none;flex:1;flex-direction:column;overflow:hidden}
+.flow-view.active{display:flex}
+.chat-view{display:flex;flex:1;flex-direction:column;overflow:hidden}
+.chat-view.hidden{display:none}
+.flow-header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;background:var(--bg-alt)}
+.flow-header h1{font-size:15px;font-weight:600;flex:1}
+.flow-header .flow-actions{display:flex;gap:8px}
+.flow-body{flex:1;overflow-y:auto;padding:20px}
+.flow-generate{max-width:640px;margin:0 auto}
+.flow-generate textarea{width:100%;min-height:100px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);color:var(--text);font-size:14px;font-family:inherit;resize:vertical;margin:12px 0}
+.flow-generate textarea:focus{outline:none;border-color:var(--accent)}
+.flow-detail{max-width:720px;margin:0 auto}
+.flow-desc{color:var(--text-dim);font-size:13px;margin-bottom:20px}
+.flow-steps{position:relative;padding-left:32px}
+.flow-step{position:relative;padding:12px 16px;margin-bottom:4px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);transition:background 0.15s}
+.flow-step:hover{background:var(--bg-hover)}
+.flow-step::before{content:'';position:absolute;left:-32px;top:20px;width:20px;height:20px;border-radius:50%;background:var(--bg-alt);border:2px solid var(--border);z-index:1}
+.flow-step::after{content:'';position:absolute;left:-22px;top:40px;width:2px;height:calc(100% - 20px);background:var(--border)}
+.flow-step:last-child::after{display:none}
+.flow-step .step-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.flow-step .step-num{font-size:11px;font-weight:700;color:var(--text-dim);min-width:20px}
+.flow-step .step-agent{display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px}
+.flow-step .step-agent .agent-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.flow-step .step-name{font-size:13px;color:var(--text)}
+.flow-step .step-prompt{font-size:12px;color:var(--text-dim);margin-top:4px;white-space:pre-wrap;word-break:break-word;max-height:60px;overflow:hidden}
+.flow-step .step-vars{font-size:11px;color:var(--text-dim);margin-top:6px;display:flex;gap:12px}
+.flow-step .step-vars .var-tag{background:var(--bg);padding:1px 6px;border-radius:3px;font-family:monospace}
+.flow-exec{max-width:720px;margin:0 auto}
+.exec-step{position:relative;padding:16px;margin-bottom:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);transition:border-color 0.2s}
+.exec-step.running{border-color:var(--accent)}
+.exec-step.completed{border-color:var(--success)}
+.exec-step.failed{border-color:var(--danger)}
+.exec-step .exec-status{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px}
+.exec-step .exec-status.waiting{background:var(--border)}
+.exec-step .exec-status.running{background:var(--accent);animation:pulse 1.5s infinite}
+.exec-step .exec-status.completed{background:var(--success)}
+.exec-step .exec-status.failed{background:var(--danger)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.exec-step .exec-output{margin-top:8px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;background:var(--bg);padding:10px;border-radius:6px;border:1px solid var(--border)}
+.exec-step .exec-output .streaming-cursor{display:inline-block;width:2px;height:14px;background:var(--accent);animation:blink 0.8s infinite;vertical-align:text-bottom;margin-left:1px}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
 </style>
 </head>
 <body>
@@ -234,6 +287,14 @@ button{font-family:inherit;cursor:pointer}
       </div>
     </div>
 
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title" onclick="toggleFlowList()">Task Flows<span class="chevron">▼</span></div>
+      <div class="section-content">
+        <div id="flow-list"></div>
+        <button class="new-flow-btn" onclick="showFlowGenerate()">+ 生成流程</button>
+      </div>
+    </div>
     <div class="sidebar-footer">
       <span class="dot" id="status-dot"></span>
       <span id="status-text">连接中...</span>
@@ -242,6 +303,18 @@ button{font-family:inherit;cursor:pointer}
 
   <!-- Main -->
   <div class="main">
+
+    <!-- Flow View -->
+    <div class="flow-view" id="flow-view">
+      <div class="flow-header">
+        <button class="btn btn-sm" onclick="backToChat()">← 返回</button>
+        <h1 id="flow-title">Task Flow</h1>
+        <div class="flow-actions" id="flow-actions"></div>
+      </div>
+      <div class="flow-body" id="flow-body"></div>
+    </div>
+
+    <div class="chat-view" id="chat-view">
     <div class="chat-header">
       <h1 id="chat-title">Agent Group Chat v2</h1>
       <span class="status" id="chat-status"></span>
@@ -1171,9 +1244,11 @@ function scrollToBottom() {
 }
 
 let isDragging = false;
+let hasManualHeight = false;
+const INPUT_HEIGHT_KEY = 'agent-chat-input-height';
 
 function autoResize(textarea) {
-  if (isDragging) return;
+  if (isDragging || hasManualHeight) return;
   textarea.style.height = 'auto';
   textarea.style.height = textarea.scrollHeight + 'px';
 }
@@ -1207,13 +1282,16 @@ function autoResize(textarea) {
     handle.classList.remove('dragging');
     document.removeEventListener('mousemove', onDrag);
     document.removeEventListener('mouseup', onDragEnd);
-    // Restore auto-max so autoResize can take over again
-    textarea.style.maxHeight = '';
+    hasManualHeight = true;
+    localStorage.setItem(INPUT_HEIGHT_KEY, textarea.offsetHeight);
   }
 
   // Restore saved height on load
-  const savedH = localStorage.getItem('agent-chat-input-height');
-  if (savedH) textarea.style.height = savedH + 'px';
+  const savedH = localStorage.getItem(INPUT_HEIGHT_KEY);
+  if (savedH) {
+    textarea.style.height = savedH + 'px';
+    hasManualHeight = true;
+  }
 })();
 
 function enableInput(enabled) {
@@ -1248,6 +1326,292 @@ document.getElementById('conv-list').addEventListener('click', (e) => {
 // ── Boot ────────────────────────────────────────────────────
 init();
 setupMentionAutocomplete();
+
+// ── Task Flow State ─────────────────────────────────────────
+let flowState = {
+  flows: [],
+  currentFlow: null,
+  currentRun: null,
+  view: 'chat',
+};
+
+// ── Task Flow API ───────────────────────────────────────────
+async function loadFlows() {
+  try {
+    flowState.flows = await api.get('/api/task-flows');
+    renderFlowList();
+  } catch (e) { console.error('loadFlows:', e); }
+}
+
+function renderFlowList() {
+  const el = document.getElementById('flow-list');
+  if (!flowState.flows.length) {
+    el.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:var(--text-dim)">暂无流程</div>';
+    return;
+  }
+  el.innerHTML = flowState.flows.map(f => {
+    const active = flowState.currentFlow && flowState.currentFlow.id === f.id ? ' active' : '';
+    return '<div class="flow-item' + active + '" data-flow-id="' + f.id + '">' +
+      '<span class="flow-icon">⚡</span>' +
+      '<span class="flow-name">' + esc(f.name) + '</span>' +
+      '<button class="flow-delete" data-delete-id="' + f.id + '" title="删除">✕</button>' +
+      '</div>';
+  }).join('');
+}
+
+document.getElementById('flow-list').addEventListener('click', (e) => {
+  const delBtn = e.target.closest('.flow-delete');
+  if (delBtn) { e.stopPropagation(); deleteFlow(delBtn.dataset.deleteId); return; }
+  const item = e.target.closest('.flow-item');
+  if (item) selectFlow(item.dataset.flowId);
+});
+
+function toggleFlowList() {
+  const section = document.getElementById('flow-list').closest('.sidebar-section');
+  section.classList.toggle('collapsed');
+}
+
+function switchToFlowView(view) {
+  flowState.view = view;
+  document.getElementById('chat-view').classList.add('hidden');
+  document.getElementById('flow-view').classList.add('active');
+}
+
+function backToChat() {
+  flowState.view = 'chat';
+  flowState.currentFlow = null;
+  document.getElementById('chat-view').classList.remove('hidden');
+  document.getElementById('flow-view').classList.remove('active');
+  renderFlowList();
+}
+
+function showFlowGenerate() {
+  switchToFlowView('generate');
+  document.getElementById('flow-title').textContent = '生成 Task Flow';
+  document.getElementById('flow-actions').innerHTML = '';
+  document.getElementById('flow-body').innerHTML =
+    '<div class="flow-generate">' +
+      '<p style="color:var(--text-dim);font-size:13px;margin-bottom:8px">描述你想要的多步骤任务流程，Hermes 会自动生成结构化定义。</p>' +
+      '<textarea id="flow-gen-input" placeholder="例: 帮我做一个代码审查流程：架构师先评估方案可行性，编码者根据方案实现代码，最后审查者做代码review"></textarea>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+        '<button class="btn" onclick="backToChat()">取消</button>' +
+        '<button class="btn btn-primary" id="flow-gen-btn" onclick="generateFlow()">生成</button>' +
+      '</div>' +
+      '<div id="flow-gen-result"></div>' +
+    '</div>';
+  document.getElementById('flow-gen-input').focus();
+}
+
+async function generateFlow() {
+  const input = document.getElementById('flow-gen-input').value.trim();
+  if (!input) return;
+  const btn = document.getElementById('flow-gen-btn');
+  btn.disabled = true;
+  btn.textContent = '生成中...';
+  const resultEl = document.getElementById('flow-gen-result');
+  resultEl.innerHTML = '<div style="color:var(--text-dim)">Hermes 正在生成流程定义...</div>';
+  try {
+    const result = await api.post('/api/task-flows/generate', { description: input });
+    let stepsHtml = '';
+    if (result.steps) {
+      for (let i = 0; i < result.steps.length; i++) {
+        stepsHtml += renderStepPreview(result.steps[i], i);
+      }
+    }
+    resultEl.innerHTML =
+      '<div style="border:1px solid var(--border);border-radius:var(--radius);padding:16px;background:var(--bg-card)">' +
+        '<h3 style="margin-bottom:8px">' + esc(result.name || '未命名流程') + '</h3>' +
+        '<p style="color:var(--text-dim);font-size:13px;margin-bottom:12px">' + esc(result.description || '') + '</p>' +
+        '<div class="flow-steps" style="margin-bottom:16px">' + stepsHtml + '</div>' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+          '<button class="btn" onclick="showFlowGenerate()">重新生成</button>' +
+          '<button class="btn btn-primary" onclick="saveGeneratedFlow()">保存并查看</button>' +
+        '</div>' +
+      '</div>';
+    flowState._generated = result;
+  } catch (e) {
+    resultEl.innerHTML = '<div style="color:var(--danger)">生成失败: ' + esc(e.message || String(e)) + '</div>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '生成';
+  }
+}
+
+function renderStepPreview(step, idx) {
+  const agent = state.agents.find(a => a.id === step.agent_id);
+  const agentName = agent ? agent.name : step.agent_id;
+  const agentColor = agent ? agent.color : '#888';
+  const agentAvatar = agent ? agent.avatar : '🤖';
+  let html = '<div class="flow-step">' +
+    '<div class="step-header">' +
+      '<span class="step-num">' + (idx + 1) + '</span>' +
+      '<span class="step-agent"><span class="agent-dot" style="background:' + agentColor + '"></span>' + agentAvatar + ' ' + esc(agentName) + '</span>' +
+    '</div>' +
+    '<div class="step-name">' + esc(step.name || '') + '</div>' +
+    '<div class="step-prompt">' + esc(step.prompt_template || '') + '</div>';
+  if (step.output_var) {
+    html += '<div class="step-vars"><span>输出 → <span class="var-tag">' + esc(step.output_var) + '</span></span></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+async function saveGeneratedFlow() {
+  const result = flowState._generated;
+  if (!result) return;
+  try {
+    const saved = await api.post('/api/task-flows', result);
+    flowState.flows.unshift(saved);
+    renderFlowList();
+    selectFlow(saved.id);
+  } catch (e) {
+    alert('保存失败: ' + (e.message || e));
+  }
+}
+
+async function selectFlow(flowId) {
+  try {
+    const flow = await api.get('/api/task-flows/' + flowId);
+    flowState.currentFlow = flow;
+    renderFlowList();
+    showFlowDetail(flow);
+  } catch (e) { console.error('selectFlow:', e); }
+}
+
+function showFlowDetail(flow) {
+  switchToFlowView('detail');
+  document.getElementById('flow-title').textContent = flow.name;
+  let stepsHtml = '';
+  if (flow.steps) {
+    for (let i = 0; i < flow.steps.length; i++) {
+      stepsHtml += renderStepPreview(flow.steps[i], i);
+    }
+  }
+  document.getElementById('flow-actions').innerHTML =
+    '<button class="btn btn-primary btn-sm" onclick="showFlowRun(\'' + flow.id + '\')">执行</button> ' +
+    '<button class="btn btn-sm" onclick="deleteFlow(\'' + flow.id + '\')">删除</button>';
+  document.getElementById('flow-body').innerHTML =
+    '<div class="flow-detail">' +
+      '<p class="flow-desc">' + esc(flow.description || '无描述') + '</p>' +
+      '<div class="flow-steps">' + stepsHtml + '</div>' +
+    '</div>';
+}
+
+function showFlowRun(flowId) {
+  const flow = flowState.currentFlow;
+  if (!flow) return;
+  switchToFlowView('exec');
+  document.getElementById('flow-title').textContent = flow.name + ' — 执行';
+  document.getElementById('flow-actions').innerHTML = '';
+  document.getElementById('flow-body').innerHTML =
+    '<div class="flow-exec">' +
+      '<p style="color:var(--text-dim);font-size:13px;margin-bottom:12px">输入要处理的内容，将按流程严格顺序执行。</p>' +
+      '<textarea id="flow-run-input" style="width:100%;min-height:80px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);color:var(--text);font-size:14px;font-family:inherit;resize:vertical;margin-bottom:12px" placeholder="输入任务内容..."></textarea>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:20px">' +
+        '<button class="btn" onclick="showFlowDetail(flowState.currentFlow)">取消</button>' +
+        '<button class="btn btn-primary" id="flow-run-btn" onclick="executeFlow(\'' + flowId + '\')">开始执行</button>' +
+      '</div>' +
+      '<div id="flow-exec-timeline"></div>' +
+    '</div>';
+  document.getElementById('flow-run-input').focus();
+}
+
+async function executeFlow(flowId) {
+  const inputText = document.getElementById('flow-run-input').value.trim();
+  if (!inputText) return;
+  const btn = document.getElementById('flow-run-btn');
+  btn.disabled = true;
+  btn.textContent = '执行中...';
+  try {
+    const result = await api.post('/api/task-flows/' + flowId + '/run', { input_text: inputText });
+    const runId = result.run_id;
+    const flow = flowState.currentFlow;
+    const timeline = document.getElementById('flow-exec-timeline');
+    let timelineHtml = '';
+    if (flow.steps) {
+      for (let i = 0; i < flow.steps.length; i++) {
+        const s = flow.steps[i];
+        const agent = state.agents.find(a => a.id === s.agent_id);
+        const agentName = agent ? agent.name : s.agent_id;
+        const agentColor = agent ? agent.color : '#888';
+        const agentAvatar = agent ? agent.avatar : '🤖';
+        timelineHtml +=
+          '<div class="exec-step" id="exec-step-' + s.id + '">' +
+            '<div class="step-header">' +
+              '<span class="exec-status waiting" id="exec-status-' + s.id + '"></span>' +
+              '<span class="step-agent"><span class="agent-dot" style="background:' + agentColor + '"></span>' + agentAvatar + ' ' + esc(agentName) + '</span>' +
+              '<span class="step-name" style="margin-left:auto;font-size:12px;color:var(--text-dim)">' + esc(s.name || 'Step ' + (i+1)) + '</span>' +
+            '</div>' +
+            '<div class="exec-output" id="exec-output-' + s.id + '" style="display:none"></div>' +
+          '</div>';
+      }
+    }
+    timeline.innerHTML = timelineHtml;
+    connectFlowStream(runId);
+  } catch (e) {
+    alert('执行失败: ' + (e.message || e));
+    btn.disabled = false;
+    btn.textContent = '开始执行';
+  }
+}
+
+function connectFlowStream(runId) {
+  const es = new EventSource('/api/task-flows/runs/' + runId + '/stream?last_id=-1');
+  es.addEventListener('step_start', function(e) {
+    const d = JSON.parse(e.data);
+    const statusEl = document.getElementById('exec-status-' + d.step_id);
+    const stepEl = document.getElementById('exec-step-' + d.step_id);
+    const outputEl = document.getElementById('exec-output-' + d.step_id);
+    if (statusEl) statusEl.className = 'exec-status running';
+    if (stepEl) stepEl.className = 'exec-step running';
+    if (outputEl) { outputEl.style.display = 'block'; outputEl.innerHTML = ''; }
+  });
+  es.addEventListener('step_text', function(e) {
+    const d = JSON.parse(e.data);
+    const outputEl = document.getElementById('exec-output-' + d.step_id);
+    if (outputEl) {
+      const cursor = outputEl.querySelector('.streaming-cursor');
+      if (cursor) cursor.remove();
+      outputEl.textContent += d.text;
+      const newCursor = document.createElement('span');
+      newCursor.className = 'streaming-cursor';
+      outputEl.appendChild(newCursor);
+      outputEl.scrollTop = outputEl.scrollHeight;
+    }
+  });
+  es.addEventListener('step_done', function(e) {
+    const d = JSON.parse(e.data);
+    const statusEl = document.getElementById('exec-status-' + d.step_id);
+    const stepEl = document.getElementById('exec-step-' + d.step_id);
+    const outputEl = document.getElementById('exec-output-' + d.step_id);
+    if (statusEl) statusEl.className = 'exec-status completed';
+    if (stepEl) stepEl.className = 'exec-step completed';
+    if (outputEl) { const c = outputEl.querySelector('.streaming-cursor'); if (c) c.remove(); }
+  });
+  es.addEventListener('step_error', function(e) {
+    const d = JSON.parse(e.data);
+    const statusEl = document.getElementById('exec-status-' + d.step_id);
+    const stepEl = document.getElementById('exec-step-' + d.step_id);
+    const outputEl = document.getElementById('exec-output-' + d.step_id);
+    if (statusEl) statusEl.className = 'exec-status failed';
+    if (stepEl) stepEl.className = 'exec-step failed';
+    if (outputEl) { outputEl.style.display = 'block'; outputEl.innerHTML = '<span style="color:var(--danger)">Error: ' + esc(d.error || 'Unknown') + '</span>'; }
+  });
+  es.addEventListener('flow_done', function() { es.close(); const b = document.getElementById('flow-run-btn'); if (b) { b.disabled = false; b.textContent = '重新执行'; } });
+  es.addEventListener('flow_error', function() { es.close(); const b = document.getElementById('flow-run-btn'); if (b) { b.disabled = false; b.textContent = '重新执行'; } });
+  es.addEventListener('error', function() { es.close(); const b = document.getElementById('flow-run-btn'); if (b) { b.disabled = false; b.textContent = '重新执行'; } });
+}
+
+async function deleteFlow(flowId) {
+  if (!confirm('确定删除此流程？')) return;
+  try {
+    await api.del('/api/task-flows/' + flowId);
+    flowState.flows = flowState.flows.filter(f => f.id !== flowId);
+    if (flowState.currentFlow && flowState.currentFlow.id === flowId) backToChat();
+    renderFlowList();
+  } catch (e) { alert('删除失败: ' + (e.message || e)); }
+}
+
 </script>
 </body>
 </html>

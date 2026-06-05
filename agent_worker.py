@@ -1,142 +1,21 @@
-"""AgentWorker — independent agent processing unit.
+"""AgentWorker — independent agent processing unit for chat mode.
 
 Each agent runs as its own async task, reading from MessageBus
 and writing back when done. No dependency on other workers.
-
-This replaces the LangGraph state graph for agent orchestration.
 """
 
 import asyncio
-import json
 from datetime import datetime
-from typing import Any, AsyncGenerator
-
-import aiohttp
+from typing import Optional
 
 from event_buffer import EventBuffer
-
-
-# ── Hermes API Streaming ─────────────────────────────────────────────────────
-
-async def stream_hermes(
-    hermes_url: str, hermes_key: str, system_prompt: str
-) -> AsyncGenerator[str, None]:
-    """Call Hermes API Server and yield content chunks."""
-    headers = {"Content-Type": "application/json"}
-    if hermes_key:
-        headers["Authorization"] = f"Bearer {hermes_key}"
-
-    payload = {
-        "model": "hermes-agent",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "请回复。"},
-        ],
-        "stream": True,
-    }
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{hermes_url}/v1/chat/completions",
-                json=payload,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=600),
-            ) as resp:
-                if resp.status != 200:
-                    error_text = await resp.text()
-                    raise RuntimeError(f"HTTP {resp.status}: {error_text[:200]}")
-
-                buffer = ""
-                async for chunk in resp.content.iter_any():
-                    buffer += chunk.decode("utf-8", errors="replace")
-                    while "\n" in buffer:
-                        line, buffer = buffer.split("\n", 1)
-                        line = line.strip()
-                        if not line or line.startswith(":"):
-                            continue
-                        if line.startswith("data: "):
-                            data_str = line[6:]
-                            if data_str == "[DONE]":
-                                return
-                            try:
-                                data = json.loads(data_str)
-                                delta = data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-                                if content:
-                                    yield content
-                            except json.JSONDecodeError:
-                                pass
-
-                for line in buffer.strip().split("\n"):
-                    line = line.strip()
-                    if line.startswith("data: ") and line[6:] != "[DONE]":
-                        try:
-                            data = json.loads(line[6:])
-                            delta = data.get("choices", [{}])[0].get("delta", {})
-                            content = delta.get("content", "")
-                            if content:
-                                yield content
-                        except json.JSONDecodeError:
-                            pass
-    except Exception as e:
-        raise RuntimeError(str(e)[:200]) from e
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def build_context_text(messages: list[dict], agents: dict) -> str:
-    lines = []
-    for msg in messages:
-        if msg["role"] == "user":
-            lines.append(f"[用户]: {msg['content']}")
-        elif msg["role"] == "assistant":
-            aname = agents.get(msg.get("agent_id", ""), {}).get("name", "Agent")
-            lines.append(f"[{aname}]: {msg['content']}")
-    return "\n\n".join(lines) if lines else "(暂无对话历史)"
-
-
-def strip_agent_prefix(text: str, agent_name: str) -> str:
-    for prefix in [f"[{agent_name}]:", f"[{agent_name}] :"]:
-        if text.startswith(prefix):
-            return text[len(prefix):].strip()
-    return text
-
-
-def extract_mentioned_agents(text: str, agents: dict) -> list[str]:
-    if not text or not agents:
-        return []
-    all_tags = []
-    for a in agents.values():
-        all_tags.append((a["name"], a["id"]))
-        all_tags.append((a["id"], a["id"]))
-    all_tags.sort(key=lambda x: len(x[0]), reverse=True)
-
-    found_ids: list[str] = []
-    idx = 0
-    while idx < len(text):
-        if text[idx] == "@":
-            matched = False
-            for tag, aid in all_tags:
-                end = idx + 1 + len(tag)
-                if text[idx + 1:end] == tag:
-                    if end >= len(text) or not (text[end].isalnum() or '\u4e00' <= text[end] <= '\u9fff'):
-                        if aid not in found_ids:
-                            found_ids.append(aid)
-                        idx = end
-                        matched = True
-                        break
-            if not matched:
-                idx += 1
-        else:
-            idx += 1
-    return found_ids
-
-
-# ── AgentWorker ───────────────────────────────────────────────────────────────
-
-MAX_MENTION_DEPTH = 1000
-MAX_RESPONSES_PER_AGENT = 3
+from hermes_client import stream_hermes
+from text_utils import (
+    build_context_text,
+    strip_agent_prefix,
+    extract_mentioned_agents,
+    MAX_MENTION_DEPTH,
+)
 
 
 class AgentWorker:
@@ -169,7 +48,7 @@ class AgentWorker:
         self.response: str = ""
         self.mentioned_agents: list[str] = []
 
-    async def run(self) -> dict | None:
+    async def run(self) -> Optional[dict]:
         """Execute agent processing. Returns the new message or None if cancelled."""
         if self.agent_id not in self.agents:
             return None
