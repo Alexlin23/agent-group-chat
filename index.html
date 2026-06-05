@@ -307,7 +307,6 @@ button{font-family:inherit;cursor:pointer}
       <div class="sidebar-section-title" onclick="toggleFlowList()">Task Flows<span class="chevron">▼</span></div>
       <div class="section-content">
         <div id="flow-list"></div>
-        <button class="new-flow-btn" onclick="showFlowGenerate()">+ 生成流程</button>
       </div>
     </div>
     <div class="sidebar-footer">
@@ -468,6 +467,7 @@ async function init() {
   checkHealth();
   renderColorPicker();
   initPromptResize();
+  loadFlows();
 
   const lastConv = localStorage.getItem('agent-chat-last-conv');
   if (lastConv && state.conversations.find(c => c.id === lastConv)) {
