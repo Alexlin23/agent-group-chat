@@ -1108,7 +1108,7 @@ function selectMention(agent) {
   input.selectionStart = input.selectionEnd = atPos + agent.name.length + 2;
   input.focus();
   document.getElementById('mention-dropdown').classList.remove('show');
-  autoResize(input);
+  if (!hasManualHeight) autoResize(input);
 }
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -1207,7 +1207,7 @@ function autoResize(textarea) {
 
 function enableInput(enabled) {
   document.getElementById('input').disabled = !enabled;
-  document.getElementById('send-btn').disabled = !enabled || state.isStreaming;
+  document.getElementById('send-btn').disabled = !enabled;
 }
 
 function updateSendBtn() {
