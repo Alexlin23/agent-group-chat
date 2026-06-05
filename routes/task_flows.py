@@ -95,7 +95,7 @@ async def run_flow(flow_id: str, req: TaskFlowRunRequest):
 
     async def _run():
         try:
-            await s.task_flow_manager.execute(flow_id, req.input_text, buffer)
+            await s.task_flow_manager.execute(flow_id, req.input_text, buffer, run_id=run_id)
         except Exception as e:
             buffer.push("error", {"error": str(e)[:300]})
             buffer.close()

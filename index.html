@@ -756,6 +756,7 @@ function createMessageEl(msg) {
   div.className = `msg ${isUser ? 'user-msg' : 'agent-msg'}`;
   if (isStreaming && !isUser && agent) {
     div.setAttribute('data-stream-agent', agent.id);
+    div.setAttribute('data-stream-task', msg._task_id || '');
     div.setAttribute('data-stream-active', 'true');
   }
   const contentHtml = isUser ? highlightMentions(esc(msg.content)) : renderMarkdown(msg.content || '');
@@ -786,18 +787,14 @@ function disconnectStream() {
 }
 
 function tryConnectStream(convId) {
-  // Always clean up existing connection first
-  if (state.activeEventSource) {
-    state.activeEventSource.close();
-    state.activeEventSource = null;
-  }
-
-  const url = `/api/conversations/${convId}/stream?last_id=${state.lastEventId}`;
+  const url = `/api/conversations/${convId}/stream?last_id=-1`;
   const es = new EventSource(url);
+
+  if (!state.streamCount) state.streamCount = 0;
+  state.streamCount++;
   state.activeEventSource = es;
 
   es.addEventListener('agent_start', (e) => {
-    if (state.activeEventSource !== es) return;
     const evt = JSON.parse(e.data);
     if (evt.id !== undefined) state.lastEventId = evt.id;
     const agent = state.agents.find(a => a.id === evt.agent_id);
@@ -837,7 +834,6 @@ function tryConnectStream(convId) {
     scrollToBottom();
   });
   es.addEventListener('text', (e) => {
-    if (state.activeEventSource !== es) return;
     const evt = JSON.parse(e.data);
     if (evt.id !== undefined) state.lastEventId = evt.id;
     const taskId = evt.task_id || `${evt.agent_id}_0`;
@@ -861,7 +857,6 @@ function tryConnectStream(convId) {
     scrollToBottom();
   });
   es.addEventListener('agent_done', (e) => {
-    if (state.activeEventSource !== es) return;
     const evt = JSON.parse(e.data);
     if (evt.id !== undefined) state.lastEventId = evt.id;
     const taskId = evt.task_id || `${evt.agent_id}_0`;
@@ -891,7 +886,6 @@ function tryConnectStream(convId) {
   });
 
   es.addEventListener('mention_trigger', (e) => {
-    if (state.activeEventSource !== es) return;
     const evt = JSON.parse(e.data);
     const fromAgent = state.agents.find(a => a.id === evt.from_agent);
     const toAgent = state.agents.find(a => a.id === evt.to_agent);
@@ -921,48 +915,39 @@ function tryConnectStream(convId) {
       }
     }
     if (es.readyState === EventSource.CLOSED) {
-      onStreamEnd();
+      es.close();
+      state.streamCount = Math.max(0, (state.streamCount || 0) - 1);
+      if (state.streamCount <= 0) onStreamEnd();
     }
   });
 
   es.addEventListener('done', (e) => {
-    // Stream complete
-    onStreamEnd();
+    es.close();
+    state.streamCount = Math.max(0, (state.streamCount || 0) - 1);
+    if (state.streamCount <= 0) onStreamEnd();
   });
 
   es.addEventListener('no_task', (e) => {
-    // No active task — reset streaming state and close
     es.close();
-    state.activeEventSource = null;
-    onStreamEnd();
+    state.streamCount = Math.max(0, (state.streamCount || 0) - 1);
+    if (state.streamCount <= 0) onStreamEnd();
   });
 }
 
 function onStreamEnd() {
-  disconnectStream();
   state.isStreaming = false;
   state.streamingConv = null;
 
-  // Finalize: clear all _streaming markers and remove _task_id
+  // Clean up leftover _streaming markers (agent_done handles per-agent cleanup)
   if (state.convData) {
     state.convData.messages.forEach(m => { delete m._streaming; delete m._task_id; });
   }
-
-  // Clear any remaining active stream markers in DOM
   document.querySelectorAll('[data-stream-active]').forEach(el => el.removeAttribute('data-stream-active'));
+  state.streamingAgents.clear();
 
-  // Update UI
-  if (state.currentConv) {
-    renderMessages();
-    const statusEl = document.getElementById('chat-status');
-    if (state.convData) {
-      statusEl.textContent = `${state.convData.messages.length} 条消息`;
-    }
-  }
+  if (state.currentConv) renderMessages();
   updateSendBtn();
   enableInput(true);
-
-  // Reload conversations list to update counts
   loadConversations();
 }
 
@@ -995,16 +980,8 @@ async function sendMessage() {
   const content = input.value.trim();
   if (!content || !state.currentConv) return;
 
-  // If currently streaming in THIS conversation, disconnect old stream first
-  if (state.isStreaming) {
-    disconnectStream();
-    state.isStreaming = false;
-    // Clear old streaming markers
-    if (state.convData) {
-      state.convData.messages.forEach(m => { delete m._streaming; delete m._task_id; });
-    }
-    document.querySelectorAll('[data-stream-active]').forEach(el => el.removeAttribute('data-stream-active'));
-  }
+  // Let old agents finish naturally — don't disconnect stream
+  // Server-side cut_mention_chain prevents @mention propagation
 
   input.value = '';
   autoResize(input);

@@ -44,6 +44,7 @@ async def list_conversations():
         "name": c["name"],
         "created_at": c.get("created_at", ""),
         "message_count": len(c.get("messages", [])),
+        "default_agent_id": c.get("default_agent_id"),
         "is_streaming": c["id"] in s.active_tasks and not s.active_tasks[c["id"]].done(),
     } for c in convs]
 
@@ -94,6 +95,8 @@ async def update_conversation(req: ConversationUpdate, conv_id: str = Depends(va
     conv = app_state.conversations[conv_id]
     if req.name is not None:
         conv["name"] = req.name
+    if req.default_agent_id is not None:
+        conv["default_agent_id"] = req.default_agent_id or None
     save_conversation(s.DATA_DIR, conv)
     return conv
 
@@ -112,7 +115,13 @@ async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv
     # Parse @mentions
     target_ids, cleaned_text = parse_mentions(req.content, agent_list)
     if not target_ids:
-        target_ids = [agent_list[0]["id"]]
+        # Use per-conversation default agent, fallback to first agent
+        conv = app_state.conversations[conv_id]
+        default_id = conv.get("default_agent_id")
+        if default_id and default_id in app_state.agents:
+            target_ids = [default_id]
+        else:
+            target_ids = [agent_list[0]["id"]]
 
     for tid in target_ids:
         if tid not in app_state.agents:

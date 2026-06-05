@@ -181,14 +181,19 @@ class TaskFlowManager:
         run.update(kwargs)
         save_json(self.runs_dir, run)
 
-    async def execute(self, flow_id: str, input_text: str, event_buffer: EventBuffer) -> dict:
+    async def execute(self, flow_id: str, input_text: str, event_buffer: EventBuffer, run_id: str = None) -> dict:
         """Execute a task flow. Returns the final variables dict."""
         flow = self.flows.get(flow_id)
         if not flow:
             raise ValueError(f"Flow '{flow_id}' not found")
 
-        run = self.create_run(flow_id, input_text)
-        run_id = run["id"]
+        if run_id:
+            run = self.runs.get(run_id)
+            if not run:
+                raise ValueError(f"Run '{run_id}' not found")
+        else:
+            run = self.create_run(flow_id, input_text)
+            run_id = run["id"]
         self._active_buffers[run_id] = event_buffer
 
         try:

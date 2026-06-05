@@ -29,6 +29,7 @@ class ConversationCreate(BaseModel):
 
 class ConversationUpdate(BaseModel):
     name: Optional[str] = None
+    default_agent_id: Optional[str] = None
 
 
 class MessageRequest(BaseModel):

@@ -29,7 +29,7 @@ class Orchestrator:
         self.hermes_key = hermes_key
         self.max_concurrent = max_concurrent
         self._active_workers: dict[str, list[AgentWorker]] = {}
-        self._cancel_flags: dict[str, bool] = {}
+        self._active_run: dict[str, Optional[str]] = {}
 
     async def process_message(
         self,
@@ -44,12 +44,13 @@ class Orchestrator:
         semaphore = asyncio.Semaphore(self.max_concurrent)
         response_count: dict[str, int] = {}
 
+        # Cut previous @mention chain and register this run as active
         self.cut_mention_chain(conv_id)
-        self._cancel_flags[conv_id] = False
+        self._active_run[conv_id] = run_id
         self._active_workers[conv_id] = []
 
         async def run_worker(agent_id: str, depth: int) -> Optional[dict]:
-            if self._cancel_flags.get(conv_id, False):
+            if self._active_run.get(conv_id) != run_id:
                 return None
             if response_count.get(agent_id, 0) >= MAX_RESPONSES_PER_AGENT:
                 return None
@@ -98,7 +99,7 @@ class Orchestrator:
                     mention_queue.append((mid, 1))
 
         depth = 1
-        while mention_queue and depth < MAX_MENTION_DEPTH and not self._cancel_flags.get(conv_id, False):
+        while mention_queue and depth < MAX_MENTION_DEPTH and self._active_run.get(conv_id) == run_id:
             next_queue = []
             tasks = []
             for agent_id, d in mention_queue:
@@ -139,15 +140,17 @@ class Orchestrator:
         event_buffer.push("done", {})
         event_buffer.close()
 
-        self._active_workers.pop(conv_id, None)
-        self._cancel_flags.pop(conv_id, None)
+        # Only clean up if we're still the active run
+        if self._active_run.get(conv_id) == run_id:
+            self._active_run.pop(conv_id, None)
+            self._active_workers.pop(conv_id, None)
 
     def cut_mention_chain(self, conv_id: str):
-        """Cut @mention chain — let current workers finish, don't spawn new ones."""
-        self._cancel_flags[conv_id] = True
+        """Cut @mention chain — old workers see stale run_id and stop spawning new ones."""
+        self._active_run.pop(conv_id, None)
 
     def cancel_chain(self, conv_id: str):
         """Cancel all active workers and @mention chain."""
-        self._cancel_flags[conv_id] = True
+        self._active_run.pop(conv_id, None)
         for worker in self._active_workers.get(conv_id, []):
             worker.cancel()
