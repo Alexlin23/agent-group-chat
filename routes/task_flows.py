@@ -13,8 +13,8 @@ router = APIRouter(prefix="/api/task-flows", tags=["task-flows"])
 
 
 def _state():
-    import server
-    return server
+    import sys
+    return sys.modules['__main__']
 
 
 @router.get("")

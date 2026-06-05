@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
+import app_state
 from fastapi import APIRouter, Depends, HTTPException, Path as FPath, Query
 from fastapi.responses import StreamingResponse
 
@@ -30,14 +31,14 @@ def validate_conv_id(conv_id: str = FPath(...)) -> str:
 # ── State accessors (avoid circular imports) ──────────────────────────────────
 
 def _state():
-    import server
-    return server
+    import sys
+    return sys.modules['__main__']
 
 
 @router.get("")
 async def list_conversations():
     s = _state()
-    convs = sorted(s.conversations.values(), key=lambda c: c.get("created_at", ""), reverse=True)
+    convs = sorted(app_state.conversations.values(), key=lambda c: c.get("created_at", ""), reverse=True)
     return [{
         "id": c["id"],
         "name": c["name"],
@@ -56,7 +57,7 @@ async def create_conversation(req: ConversationCreate):
         "created_at": datetime.now().isoformat(),
         "messages": [],
     }
-    s.conversations[cid] = conv
+    app_state.conversations[cid] = conv
     save_conversation(s.DATA_DIR, conv)
     await s.bus_manager.get_or_create(cid)
     return conv
@@ -65,22 +66,22 @@ async def create_conversation(req: ConversationCreate):
 @router.get("/{conv_id}")
 async def get_conversation(conv_id: str = Depends(validate_conv_id)):
     s = _state()
-    if conv_id not in s.conversations:
+    if conv_id not in app_state.conversations:
         raise HTTPException(404, "Conversation not found")
-    return s.conversations[conv_id]
+    return app_state.conversations[conv_id]
 
 
 @router.delete("/{conv_id}")
 async def delete_conversation(conv_id: str = Depends(validate_conv_id)):
     s = _state()
-    if conv_id not in s.conversations:
+    if conv_id not in app_state.conversations:
         raise HTTPException(404, "Conversation not found")
     if conv_id in s.active_tasks and not s.active_tasks[conv_id].done():
         s.active_tasks[conv_id].cancel()
     s.active_tasks.pop(conv_id, None)
     s.active_buffers.pop(conv_id, None)
     s.bus_manager.remove(conv_id)
-    del s.conversations[conv_id]
+    del app_state.conversations[conv_id]
     delete_conversation_file(s.DATA_DIR, conv_id)
     return {"ok": True}
 
@@ -88,9 +89,9 @@ async def delete_conversation(conv_id: str = Depends(validate_conv_id)):
 @router.put("/{conv_id}")
 async def update_conversation(req: ConversationUpdate, conv_id: str = Depends(validate_conv_id)):
     s = _state()
-    if conv_id not in s.conversations:
+    if conv_id not in app_state.conversations:
         raise HTTPException(404, "Conversation not found")
-    conv = s.conversations[conv_id]
+    conv = app_state.conversations[conv_id]
     if req.name is not None:
         conv["name"] = req.name
     save_conversation(s.DATA_DIR, conv)
@@ -101,10 +102,10 @@ async def update_conversation(req: ConversationUpdate, conv_id: str = Depends(va
 async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv_id)):
     """Start agent processing for a message. Returns immediately."""
     s = _state()
-    if conv_id not in s.conversations:
+    if conv_id not in app_state.conversations:
         raise HTTPException(404, "Conversation not found")
 
-    agent_list = list(s.agents.values())
+    agent_list = list(app_state.agents.values())
     if not agent_list:
         raise HTTPException(400, "No agents configured")
 
@@ -114,14 +115,15 @@ async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv
         target_ids = [agent_list[0]["id"]]
 
     for tid in target_ids:
-        if tid not in s.agents:
+        if tid not in app_state.agents:
             raise HTTPException(400, f"Unknown agent: {tid}")
 
     # Store user message via MessageBus
-    bus = await s.bus_manager.get_or_create(conv_id, s.conversations[conv_id].get("messages", []))
+    bus = await s.bus_manager.get_or_create(conv_id, app_state.conversations[conv_id].get("messages", []))
     user_msg = {"role": "user", "content": req.content, "agent_id": None}
     await bus.append(user_msg)
-    s.conversations[conv_id]["messages"] = bus.messages
+    app_state.conversations[conv_id]["messages"] = bus.messages
+    save_conversation(s.DATA_DIR, app_state.conversations[conv_id])
 
     # Cut old @mention chain
     s.orchestrator.cut_mention_chain(conv_id)
@@ -139,7 +141,8 @@ async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv
                 bus=bus,
                 event_buffer=my_buffer,
             )
-            s.conversations[conv_id]["messages"] = bus.messages
+            app_state.conversations[conv_id]["messages"] = bus.messages
+            save_conversation(s.DATA_DIR, app_state.conversations[conv_id])
         except Exception as e:
             my_buffer.push("error", {"error": str(e)[:300]})
             my_buffer.close()
@@ -160,7 +163,7 @@ async def stream_conversation(
 ):
     """SSE endpoint: stream events for a conversation."""
     s = _state()
-    if conv_id not in s.conversations:
+    if conv_id not in app_state.conversations:
         raise HTTPException(404, "Conversation not found")
 
     buffer = s.active_buffers.get(conv_id)

@@ -44,8 +44,7 @@ app.add_middleware(
 )
 
 # ── Shared State ──────────────────────────────────────────────────────────────
-agents: dict[str, dict] = {}
-conversations: dict[str, dict] = {}
+import app_state
 
 active_tasks: dict[str, asyncio.Task] = {}
 active_buffers: dict[str, EventBuffer] = {}
@@ -59,13 +58,13 @@ task_flow_manager: Optional[TaskFlowManager] = None
 
 @app.on_event("startup")
 async def startup():
-    global agents, conversations, orchestrator, task_flow_manager
-    agents = load_agents(AGENTS_FILE)
-    conversations = load_conversations(DATA_DIR)
-    for cid, conv in conversations.items():
+    global orchestrator, task_flow_manager
+    app_state.agents = load_agents(AGENTS_FILE)
+    app_state.conversations = load_conversations(DATA_DIR)
+    for cid, conv in app_state.conversations.items():
         await bus_manager.get_or_create(cid, conv.get("messages", []))
     orchestrator = Orchestrator(
-        agents=agents,
+        agents=app_state.agents,
         hermes_url=HERMES_API_URL,
         hermes_key=HERMES_API_KEY,
         max_concurrent=3,
@@ -74,18 +73,18 @@ async def startup():
     task_flow_manager = TaskFlowManager(
         flows_dir=FLOWS_DIR,
         runs_dir=RUNS_DIR,
-        agents=agents,
+        agents=app_state.agents,
         hermes_url=HERMES_API_URL,
         hermes_key=HERMES_API_KEY,
     )
     task_flow_manager.load()
     # Reset stale streaming flags
     from storage import save_conversation as _save_conv
-    for conv in conversations.values():
+    for conv in app_state.conversations.values():
         if conv.get("is_streaming"):
             conv["is_streaming"] = False
             _save_conv(DATA_DIR, conv)
-    print(f"Loaded {len(agents)} agents, {len(conversations)} conversations")
+    print(f"Loaded {len(app_state.agents)} agents, {len(app_state.conversations)} conversations")
     print(f"Task Flows: {len(task_flow_manager.flows)}")
     print(f"Hermes API: {HERMES_API_URL}")
     print(f"Server running on port {SERVER_PORT}")
@@ -119,8 +118,8 @@ async def health():
     return {
         "status": "ok",
         "hermes_api": hermes_ok,
-        "agents": len(agents),
-        "conversations": len(conversations),
+        "agents": len(app_state.agents),
+        "conversations": len(app_state.conversations),
         "active_tasks": sum(1 for t in active_tasks.values() if not t.done()),
         "task_flows": len(task_flow_manager.flows) if task_flow_manager else 0,
     }

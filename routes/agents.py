@@ -10,14 +10,13 @@ router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
 def _get_agents():
-    """Lazy import to avoid circular dependency."""
-    import server
-    return server.agents
+    import app_state
+    return app_state.agents
 
 
 def _get_agents_file():
-    import server
-    return server.AGENTS_FILE
+    import sys
+    return sys.modules['__main__'].AGENTS_FILE
 
 
 @router.get("")
