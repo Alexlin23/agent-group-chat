@@ -590,7 +590,7 @@ async function selectConversation(id) {
 
   renderConvList();
   renderMessages();
-  enableInput(!state.isStreaming);
+  enableInput(!state.convStreamingStates[id]);
 
   // Restore draft
   const inputEl = document.getElementById('input');
@@ -923,10 +923,14 @@ async function sendMessage() {
   const content = input.value.trim();
   if (!content || !state.currentConv) return;
 
-  // If currently streaming, disconnect old stream first (backend will cancel old chain)
-  if (state.isStreaming) {
+  // If currently streaming in THIS conversation, disconnect old stream first
+  const isCurrentStreaming = state.convStreamingStates[state.currentConv] || state.isStreaming;
+  if (isCurrentStreaming) {
     disconnectStream();
     state.isStreaming = false;
+    delete state.convStreamingStates[state.currentConv];
+    state.streamingAgents.clear();
+    state.lastEventId = -1;
     // Clear old streaming markers
     if (state.convData) {
       state.convData.messages.forEach(m => { delete m._streaming; delete m._task_id; });
