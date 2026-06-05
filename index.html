@@ -98,7 +98,7 @@ button{font-family:inherit;cursor:pointer}
 .chat-header h1{font-size:15px;font-weight:600}
 .chat-header .status{font-size:12px;color:var(--text-dim)}
 
-.messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:4px}
+.messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:4px;min-height:80px}
 .messages::-webkit-scrollbar{width:6px}
 .messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
@@ -154,9 +154,9 @@ button{font-family:inherit;cursor:pointer}
 .empty-state p{font-size:14px}
 
 /* ── Input Area ────────────────────────────────────────────── */
-.input-area{padding:12px 20px 16px;border-top:1px solid var(--border);background:var(--bg-alt);position:relative;transition:background 0.2s,border-color 0.2s;--auto-max:150px;--drag-max:250px}
+.input-area{padding:12px 20px 16px;border-top:1px solid var(--border);background:var(--bg-alt);position:relative;transition:background 0.2s,border-color 0.2s}
 .input-wrapper{display:flex;gap:8px;align-items:flex-end;flex-direction:column;position:relative}
-.input-field{flex:1;width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:10px 14px;font-size:14px;color:var(--text);resize:none;font-family:inherit;line-height:1.5;max-height:var(--auto-max);min-height:42px;outline:none;overflow-y:auto;scrollbar-width:none}
+.input-field{flex:1;width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:10px 14px;font-size:14px;color:var(--text);resize:none;font-family:inherit;line-height:1.5;max-height:none;min-height:42px;outline:none;overflow-y:auto;scrollbar-width:none}
 .input-field:focus{border-color:var(--accent)}
 .input-field::-webkit-scrollbar{display:none}
 .resize-handle{position:absolute;top:-3px;left:0;right:0;height:6px;cursor:row-resize;z-index:2;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.15s;padding:4px 0;margin:-4px 0}
@@ -199,10 +199,19 @@ button{font-family:inherit;cursor:pointer}
 .modal .btn-primary:hover{opacity:0.85}
 .modal .btn-danger{background:var(--danger);border-color:var(--danger);color:#fff}
 .modal .btn-danger:hover{opacity:0.85}
+
+/* ── Toast ─────────────────────────────────────────────────── */
+#toast-container{position:fixed;top:16px;right:16px;z-index:300;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{padding:10px 16px;border-radius:8px;font-size:13px;color:#fff;pointer-events:auto;animation:toastIn 0.25s ease;max-width:360px;word-break:break-word;box-shadow:0 4px 12px rgba(0,0,0,0.3)}
+.toast-error{background:var(--danger)}
+.toast-info{background:var(--accent)}
+@keyframes toastIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateY(-8px)}}
 </style>
 </head>
 <body>
 
+<div id="toast-container"></div>
 <div class="app">
   <!-- Sidebar -->
   <div class="sidebar">
@@ -300,7 +309,6 @@ let state = {
   activeEventSource: null,   // current EventSource connection
   streamingAgents: new Map(), // key: taskId, value: {agentId, response}
   lastEventId: -1,           // last received event ID
-  convStreamingStates: {},   // convId → {streamingAgents, lastEventId} saved per conversation
 };
 const COLORS = ['#4FC3F7','#81C784','#FFB74D','#CE93D8','#F06292','#4DD0E1','#AED581','#FFD54F','#BCAAA4','#90CAF9','#EF5350','#AB47BC','#26A69A','#FF7043','#5C6BC0','#66BB6A','#EC407A','#29B6F6'];
 
@@ -429,7 +437,7 @@ function renderAgentList() {
     <div class="agent-item">
       <div class="agent-avatar" style="background:${a.color}20;color:${a.color}">${a.avatar}</div>
       <span class="agent-name">${esc(a.name)}</span>
-      <button class="agent-edit" onclick="showAgentModal('${a.id}')">✎</button>
+      <button class="agent-edit" data-agent-id="${a.id}">✎</button>
     </div>
   `).join('');
 }
@@ -474,14 +482,14 @@ async function saveAgent() {
   const avatar = document.getElementById('agent-avatar').value.trim() || '🤖';
   const prompt = document.getElementById('agent-prompt').value.trim();
   const color = document.querySelector('.color-swatch.selected')?.dataset.color || COLORS[0];
-  if (!name || !id) return alert('名称和ID不能为空');
+  if (!name || !id) return showToast('名称和ID不能为空');
   if (state.editingAgentId) {
     await api.put(`/api/agents/${state.editingAgentId}`, { name, color, avatar, system_prompt: prompt });
   } else {
     try {
       await api.post('/api/agents', { id, name, color, avatar, system_prompt: prompt });
     } catch (e) {
-      return alert('ID已存在或创建失败');
+      return showToast('ID已存在或创建失败');
     }
   }
   hideAgentModal();
@@ -498,7 +506,7 @@ async function deleteAgent() {
 
 function renderColorPicker() {
   const row = document.getElementById('color-row');
-  row.innerHTML = COLORS.map(c => `<div class="color-swatch" style="background:${c}" data-color="${c}" onclick="selectColor('${c}')"></div>`).join('');
+  row.innerHTML = COLORS.map(c => `<div class="color-swatch" style="background:${c}" data-color="${c}"></div>`).join('');
   selectColor(COLORS[0]);
 }
 
@@ -517,10 +525,10 @@ async function loadConversations() {
 function renderConvList() {
   const el = document.getElementById('conv-list');
   el.innerHTML = state.conversations.map(c => `
-    <div class="conv-item ${state.currentConv === c.id ? 'active' : ''}" onclick="selectConversation('${c.id}')">
+    <div class="conv-item ${state.currentConv === c.id ? 'active' : ''}" data-conv-id="${c.id}">
       <span class="conv-name">${esc(c.name)}</span>
-      <button class="conv-rename" onclick="event.stopPropagation();renameConversation('${c.id}')" title="改名">✎</button>
-      <button class="conv-delete" onclick="event.stopPropagation();deleteConversation('${c.id}')">✕</button>
+      <button class="conv-rename" data-rename-id="${c.id}" title="改名">✎</button>
+      <button class="conv-delete" data-delete-id="${c.id}">✕</button>
     </div>
   `).join('');
 }
@@ -544,33 +552,27 @@ async function selectConversation(id) {
     else deleteDraft(state.currentConv);
   }
 
-  // Save current streaming state before switching
-  if (state.currentConv) {
-    state.convStreamingStates[state.currentConv] = {
-      streamingAgents: new Map(state.streamingAgents),
-      lastEventId: state.lastEventId,
-    };
-  }
+  // 1. Clear streaming state (don't save — restore via server query)
+  state.streamingAgents = new Map();
+  state.lastEventId = -1;
 
-  // Save current conv data to cache
+  // 2. Save current conv data to cache, filtering out full streaming placeholders
   if (state.currentConv && state.convData) {
-    state.convCache[state.currentConv] = state.convData;
+    const clean = state.convData.messages.map(m => {
+      if (m._streaming) return { _streaming: true, _task_id: m._task_id, role: 'assistant', content: '' };
+      return m;
+    });
+    state.convCache[state.currentConv] = { ...state.convData, messages: clean };
   }
 
-  // Disconnect current stream if switching conversations
-  disconnectStream();
+  // 3. Disconnect old stream
+  if (state.activeEventSource) {
+    state.activeEventSource.close();
+    state.activeEventSource = null;
+  }
 
+  // 4. Switch conversation
   state.currentConv = id;
-
-  // Restore streaming state for this conversation
-  const savedState = state.convStreamingStates[id];
-  if (savedState) {
-    state.streamingAgents = savedState.streamingAgents;
-    state.lastEventId = savedState.lastEventId;
-  } else {
-    state.streamingAgents = new Map();
-    state.lastEventId = -1;
-  }
   // Load from cache or server
   if (state.convCache[id]) {
     state.convData = state.convCache[id];
@@ -595,7 +597,7 @@ async function selectConversation(id) {
   // Restore draft
   const inputEl = document.getElementById('input');
   inputEl.value = loadDraft(id);
-  if (!hasManualHeight) autoResize(inputEl);
+  autoResize(inputEl);
 
   document.getElementById('chat-title').textContent = state.convData.name;
   document.getElementById('chat-status').textContent = `${state.convData.messages.length} 条消息`;
@@ -653,9 +655,12 @@ function renderMessages() {
     return;
   }
   el.innerHTML = '';
+  const frag = document.createDocumentFragment();
   for (const msg of state.convData.messages) {
-    el.appendChild(createMessageEl(msg));
+    if (msg._streaming && !state.streamingAgents.has(msg._task_id)) continue;
+    frag.appendChild(createMessageEl(msg));
   }
+  el.appendChild(frag);
   scrollToBottom();
 }
 
@@ -693,11 +698,7 @@ function createMessageEl(msg) {
 }
 
 function highlightMentions(text) {
-  return text.replace(/@(\S+)/g, (match, name) => {
-    const agent = state.agents.find(a => a.name === name || a.id === name);
-    if (agent) return `<span class="mention" style="color:${agent.color}">@${esc(name)}</span>`;
-    return match;
-  });
+  return _replaceMentions(text, _buildAgentLookup());
 }
 
 // ── Streaming (v2: EventSource) ─────────────────────────────
@@ -707,7 +708,8 @@ function disconnectStream() {
     state.activeEventSource.close();
     state.activeEventSource = null;
   }
-  // Don't clear streamingAgents or lastEventId — they're saved per conversation
+  state.streamingAgents.clear();
+  state.lastEventId = -1;
 }
 
 function tryConnectStream(convId) {
@@ -722,6 +724,7 @@ function tryConnectStream(convId) {
   state.activeEventSource = es;
 
   es.addEventListener('agent_start', (e) => {
+    if (state.activeEventSource !== es) return;
     const evt = JSON.parse(e.data);
     if (evt.id !== undefined) state.lastEventId = evt.id;
     const agent = state.agents.find(a => a.id === evt.agent_id);
@@ -761,6 +764,7 @@ function tryConnectStream(convId) {
     scrollToBottom();
   });
   es.addEventListener('text', (e) => {
+    if (state.activeEventSource !== es) return;
     const evt = JSON.parse(e.data);
     if (evt.id !== undefined) state.lastEventId = evt.id;
     const taskId = evt.task_id || `${evt.agent_id}_0`;
@@ -784,6 +788,7 @@ function tryConnectStream(convId) {
     scrollToBottom();
   });
   es.addEventListener('agent_done', (e) => {
+    if (state.activeEventSource !== es) return;
     const evt = JSON.parse(e.data);
     if (evt.id !== undefined) state.lastEventId = evt.id;
     const taskId = evt.task_id || `${evt.agent_id}_0`;
@@ -813,6 +818,7 @@ function tryConnectStream(convId) {
   });
 
   es.addEventListener('mention_trigger', (e) => {
+    if (state.activeEventSource !== es) return;
     const evt = JSON.parse(e.data);
     const fromAgent = state.agents.find(a => a.id === evt.from_agent);
     const toAgent = state.agents.find(a => a.id === evt.to_agent);
@@ -863,13 +869,6 @@ function onStreamEnd() {
   disconnectStream();
   state.isStreaming = false;
   state.streamingConv = null;
-
-  // Clear streaming state for this conversation
-  if (state.currentConv) {
-    delete state.convStreamingStates[state.currentConv];
-  }
-  state.streamingAgents.clear();
-  state.lastEventId = -1;
 
   // Finalize: clear all _streaming markers and remove _task_id
   if (state.convData) {
@@ -924,13 +923,9 @@ async function sendMessage() {
   if (!content || !state.currentConv) return;
 
   // If currently streaming in THIS conversation, disconnect old stream first
-  const isCurrentStreaming = state.convStreamingStates[state.currentConv] || state.isStreaming;
-  if (isCurrentStreaming) {
+  if (state.isStreaming) {
     disconnectStream();
     state.isStreaming = false;
-    delete state.convStreamingStates[state.currentConv];
-    state.streamingAgents.clear();
-    state.lastEventId = -1;
     // Clear old streaming markers
     if (state.convData) {
       state.convData.messages.forEach(m => { delete m._streaming; delete m._task_id; });
@@ -963,14 +958,18 @@ async function _sendToBackend(content) {
   document.getElementById('messages').appendChild(placeholder);
   scrollToBottom();
 
-  // Auto-rename on first message
+  // Auto-rename on first message (only when name is still default)
   const conv = state.conversations.find(c => c.id === targetConvId);
-  if (conv && conv.name === '新对话' && state.convData && state.convData.messages.length <= 1) {
+  if (conv && conv.name === '新对话' && state.convData && state.convData.name === '新对话') {
     const newName = content.replace(/^@\S+\s*/, '').substring(0, 30) || content.substring(0, 30);
     conv.name = newName;
-    api.put(`/api/conversations/${targetConvId}`, { name: newName }).catch(() => {});
+    state.convData.name = newName;
     document.getElementById('chat-title').textContent = newName;
     renderConvList();
+    try { await api.put(`/api/conversations/${targetConvId}`, { name: newName }); } catch (e) {
+      console.error('Auto-rename failed:', e);
+      showToast('自动重命名失败');
+    }
   }
 
   // Parse targets
@@ -987,11 +986,13 @@ async function _sendToBackend(content) {
       tryConnectStream(targetConvId);
     } else {
       console.error('Unexpected response:', resp);
+      showToast('发送失败: 服务器返回异常');
       state.isStreaming = false;
       enableInput(true);
     }
   } catch (err) {
     console.error('Send error:', err);
+    showToast('发送失败: 网络错误');
     state.isStreaming = false;
     enableInput(true);
   }
@@ -1019,7 +1020,7 @@ function setupMentionAutocomplete() {
   const dropdown = document.getElementById('mention-dropdown');
 
   input.addEventListener('input', () => {
-    if (!hasManualHeight) autoResize(input);
+    autoResize(input);
     checkMention();
   });
 
@@ -1108,7 +1109,16 @@ function selectMention(agent) {
   input.selectionStart = input.selectionEnd = atPos + agent.name.length + 2;
   input.focus();
   document.getElementById('mention-dropdown').classList.remove('show');
-  if (!hasManualHeight) autoResize(input);
+  autoResize(input);
+}
+
+// ── Toast ───────────────────────────────────────────────────
+function showToast(msg, type = 'error') {
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  document.getElementById('toast-container').appendChild(t);
+  setTimeout(() => { t.style.animation = 'toastOut 0.25s ease forwards'; setTimeout(() => t.remove(), 250); }, 5000);
 }
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -1116,6 +1126,23 @@ function esc(s) {
   const el = document.createElement('span');
   el.textContent = s;
   return el.innerHTML;
+}
+
+function _buildAgentLookup() {
+  const map = new Map();
+  for (const a of state.agents) {
+    map.set(a.name, a);
+    map.set(a.id, a);
+  }
+  return map;
+}
+
+function _replaceMentions(html, agentMap) {
+  return html.replace(/@(\S+)/g, (match, name) => {
+    const agent = agentMap.get(name);
+    if (agent) return `<span class="mention" style="color:${agent.color}">@${esc(name)}</span>`;
+    return match;
+  });
 }
 
 function renderMarkdown(text) {
@@ -1135,12 +1162,7 @@ function renderMarkdown(text) {
   html = html.replace(/\n\n/g, '</p><p>');
   html = html.replace(/\n/g, '<br>');
   if (!html.startsWith('<')) html = '<p>' + html + '</p>';
-  html = html.replace(/@(\S+)/g, (match, name) => {
-    const agent = state.agents.find(a => a.name === name || a.id === name);
-    if (agent) return `<span class="mention" style="color:${agent.color}">@${esc(name)}</span>`;
-    return match;
-  });
-  return html;
+  return _replaceMentions(html, _buildAgentLookup());
 }
 
 function scrollToBottom() {
@@ -1149,15 +1171,11 @@ function scrollToBottom() {
 }
 
 let isDragging = false;
-let hasManualHeight = false;
-const INPUT_HEIGHT_KEY = 'agent-chat-input-height';
 
 function autoResize(textarea) {
   if (isDragging) return;
   textarea.style.height = 'auto';
-  const maxH = parseInt(getComputedStyle(document.querySelector('.input-area')).getPropertyValue('--auto-max'));
-  const effectiveMax = hasManualHeight ? Math.max(maxH, parseInt(localStorage.getItem(INPUT_HEIGHT_KEY) || 0)) : maxH;
-  textarea.style.height = Math.min(textarea.scrollHeight, effectiveMax) + 'px';
+  textarea.style.height = textarea.scrollHeight + 'px';
 }
 
 (function setupResizeHandle() {
@@ -1165,7 +1183,6 @@ function autoResize(textarea) {
   const textarea = document.getElementById('input');
   if (!handle || !textarea) return;
   let startY, startH;
-  const dragMax = () => parseInt(getComputedStyle(document.querySelector('.input-area')).getPropertyValue('--drag-max'));
   const minH = 42;
 
   handle.addEventListener('mousedown', (e) => {
@@ -1181,9 +1198,8 @@ function autoResize(textarea) {
 
   function onDrag(e) {
     const dy = startY - e.clientY;
-    const newH = Math.max(minH, Math.min(startH + dy, dragMax()));
+    const newH = Math.max(minH, startH + dy);
     textarea.style.height = newH + 'px';
-    textarea.style.maxHeight = newH + 'px';
   }
 
   function onDragEnd() {
@@ -1191,18 +1207,13 @@ function autoResize(textarea) {
     handle.classList.remove('dragging');
     document.removeEventListener('mousemove', onDrag);
     document.removeEventListener('mouseup', onDragEnd);
-    localStorage.setItem(INPUT_HEIGHT_KEY, textarea.offsetHeight);
-    hasManualHeight = true;
     // Restore auto-max so autoResize can take over again
     textarea.style.maxHeight = '';
   }
 
   // Restore saved height on load
-  const savedH = localStorage.getItem(INPUT_HEIGHT_KEY);
-  if (savedH) {
-    textarea.style.height = savedH + 'px';
-    hasManualHeight = true;
-  }
+  const savedH = localStorage.getItem('agent-chat-input-height');
+  if (savedH) textarea.style.height = savedH + 'px';
 })();
 
 function enableInput(enabled) {
@@ -1213,6 +1224,26 @@ function enableInput(enabled) {
 function updateSendBtn() {
   document.getElementById('send-btn').disabled = !state.currentConv;
 }
+
+// ── Event Delegation ───────────────────────────────────────
+document.getElementById('agent-list').addEventListener('click', (e) => {
+  const btn = e.target.closest('.agent-edit');
+  if (btn) showAgentModal(btn.dataset.agentId);
+});
+
+document.getElementById('color-row').addEventListener('click', (e) => {
+  const swatch = e.target.closest('.color-swatch');
+  if (swatch) selectColor(swatch.dataset.color);
+});
+
+document.getElementById('conv-list').addEventListener('click', (e) => {
+  const delBtn = e.target.closest('.conv-delete');
+  if (delBtn) { e.stopPropagation(); deleteConversation(delBtn.dataset.deleteId); return; }
+  const renBtn = e.target.closest('.conv-rename');
+  if (renBtn) { e.stopPropagation(); renameConversation(renBtn.dataset.renameId); return; }
+  const item = e.target.closest('.conv-item');
+  if (item) selectConversation(item.dataset.convId);
+});
 
 // ── Boot ────────────────────────────────────────────────────
 init();

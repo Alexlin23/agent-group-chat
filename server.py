@@ -17,10 +17,19 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Path as FPath, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
+
+
+# ── Path Validation ─────────────────────────────────────────────────────────
+
+def validate_conv_id(conv_id: str = FPath(...)) -> str:
+    """Reject any conv_id that isn't exactly a 12-char hex string."""
+    if not re.fullmatch(r'[0-9a-f]{12}', conv_id):
+        raise HTTPException(400, "Invalid conversation ID")
+    return conv_id
 
 from event_buffer import EventBuffer, format_sse
 from message_bus import MessageBus, MessageBusManager
@@ -276,14 +285,14 @@ async def create_conversation(req: ConversationCreate):
 
 
 @app.get("/api/conversations/{conv_id}")
-async def get_conversation(conv_id: str):
+async def get_conversation(conv_id: str = Depends(validate_conv_id)):
     if conv_id not in conversations:
         raise HTTPException(404, "Conversation not found")
     return conversations[conv_id]
 
 
 @app.delete("/api/conversations/{conv_id}")
-async def delete_conversation(conv_id: str):
+async def delete_conversation(conv_id: str = Depends(validate_conv_id)):
     if conv_id not in conversations:
         raise HTTPException(404, "Conversation not found")
     # Cancel active task if any
@@ -298,7 +307,7 @@ async def delete_conversation(conv_id: str):
 
 
 @app.put("/api/conversations/{conv_id}")
-async def update_conversation(conv_id: str, req: ConversationUpdate):
+async def update_conversation(req: ConversationUpdate, conv_id: str = Depends(validate_conv_id)):
     if conv_id not in conversations:
         raise HTTPException(404, "Conversation not found")
     conv = conversations[conv_id]
@@ -311,7 +320,7 @@ async def update_conversation(conv_id: str, req: ConversationUpdate):
 # ── Message API (fire-and-forget + SSE stream) ───────────────────────────────
 
 @app.post("/api/conversations/{conv_id}/message")
-async def send_message(conv_id: str, req: MessageRequest):
+async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv_id)):
     """Start agent processing for a message. Returns immediately."""
     if conv_id not in conversations:
         raise HTTPException(404, "Conversation not found")
@@ -375,7 +384,7 @@ async def send_message(conv_id: str, req: MessageRequest):
 
 @app.get("/api/conversations/{conv_id}/stream")
 async def stream_conversation(
-    conv_id: str,
+    conv_id: str = Depends(validate_conv_id),
     last_id: int = Query(-1, alias="last_id"),
 ):
     """SSE endpoint: stream events for a conversation.
@@ -412,7 +421,7 @@ async def stream_conversation(
 
 
 @app.get("/api/conversations/{conv_id}/task_status")
-async def task_status(conv_id: str):
+async def task_status(conv_id: str = Depends(validate_conv_id)):
     """Check if a task is running for this conversation."""
     task = active_tasks.get(conv_id)
     if task is None:

@@ -115,8 +115,7 @@ async def stream_hermes(
             ) as resp:
                 if resp.status != 200:
                     error_text = await resp.text()
-                    yield f"[ERROR] HTTP {resp.status}: {error_text[:200]}"
-                    return
+                    raise RuntimeError(f"HTTP {resp.status}: {error_text[:200]}")
 
                 buffer = ""
                 async for chunk in resp.content.iter_any():
@@ -151,7 +150,7 @@ async def stream_hermes(
                         except json.JSONDecodeError:
                             pass
     except Exception as e:
-        yield f"[ERROR] {str(e)[:200]}"
+        raise RuntimeError(str(e)[:200]) from e
 
 
 # ── Graph Nodes ───────────────────────────────────────────────────────────────
@@ -193,9 +192,13 @@ async def process_agent(state: ChatState) -> dict:
 
     # Stream response from Hermes API
     full_response = ""
-    async for chunk in stream_hermes(state["hermes_url"], state["hermes_key"], system_prompt):
-        full_response += chunk
-        event_buffer.push("text", {"agent_id": agent_id, "text": chunk})
+    try:
+        async for chunk in stream_hermes(state["hermes_url"], state["hermes_key"], system_prompt):
+            full_response += chunk
+            event_buffer.push("text", {"agent_id": agent_id, "text": chunk})
+    except RuntimeError as e:
+        event_buffer.push("error", {"agent_id": agent_id, "error": str(e)})
+        return {"agent_queue": [], "new_messages": []}
 
     # Emit agent_done
     event_buffer.push("agent_done", {"agent_id": agent_id, "full_response": full_response})

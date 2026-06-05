@@ -45,8 +45,7 @@ async def stream_hermes(
             ) as resp:
                 if resp.status != 200:
                     error_text = await resp.text()
-                    yield f"[ERROR] HTTP {resp.status}: {error_text[:200]}"
-                    return
+                    raise RuntimeError(f"HTTP {resp.status}: {error_text[:200]}")
 
                 buffer = ""
                 async for chunk in resp.content.iter_any():
@@ -81,7 +80,7 @@ async def stream_hermes(
                         except json.JSONDecodeError:
                             pass
     except Exception as e:
-        yield f"[ERROR] {str(e)[:200]}"
+        raise RuntimeError(str(e)[:200]) from e
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -195,15 +194,23 @@ class AgentWorker:
 
         # Stream response
         self.response = ""
-        async for chunk in stream_hermes(self.hermes_url, self.hermes_key, system_prompt):
-            if self._cancelled:
-                break
-            self.response += chunk
-            self.event_buffer.push("text", {
+        try:
+            async for chunk in stream_hermes(self.hermes_url, self.hermes_key, system_prompt):
+                if self._cancelled:
+                    break
+                self.response += chunk
+                self.event_buffer.push("text", {
+                    "agent_id": self.agent_id,
+                    "task_id": self.task_id,
+                    "text": chunk,
+                })
+        except RuntimeError as e:
+            self.event_buffer.push("error", {
                 "agent_id": self.agent_id,
                 "task_id": self.task_id,
-                "text": chunk,
+                "error": str(e),
             })
+            return None
 
         if self._cancelled or not self.response:
             return None

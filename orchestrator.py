@@ -147,8 +147,12 @@ class Orchestrator:
             await bus.append_batch(new_messages)
 
         # Phase 2: Process @mention chain (sequential to maintain order)
+        # Track which workers' mentions have already been processed to avoid duplicates
+        processed_workers: set[int] = set()
+
         mention_queue = []
         for worker in self._active_workers.get(conv_id, []):
+            processed_workers.add(id(worker))
             for mid in worker.mentioned_agents:
                 if mid in self.agents:
                     mention_queue.append((mid, 1))
@@ -179,8 +183,11 @@ class Orchestrator:
             if new_messages:
                 await bus.append_batch(new_messages)
 
-            # Gather @mentions from this depth's workers
+            # Gather @mentions ONLY from NEW workers (not already processed)
             for worker in self._active_workers.get(conv_id, []):
+                if id(worker) in processed_workers:
+                    continue
+                processed_workers.add(id(worker))
                 for mid in worker.mentioned_agents:
                     if mid in self.agents and response_count.get(mid, 0) < MAX_RESPONSES_PER_AGENT:
                         next_queue.append((mid, depth + 1))
