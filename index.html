@@ -80,7 +80,7 @@ button{font-family:inherit;cursor:pointer}
 .conv-item .conv-menu-btn{opacity:0;background:none;border:none;color:var(--text-dim);font-size:16px;padding:2px 6px;border-radius:3px;cursor:pointer;line-height:1}
 .conv-item:hover .conv-menu-btn{opacity:0.6}
 .conv-item .conv-menu-btn:hover{opacity:1;background:var(--bg-hover)}
-.conv-menu{position:absolute;right:8px;top:100%;z-index:150;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);min-width:140px;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:none}
+.conv-menu{position:fixed;z-index:150;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);min-width:140px;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:none}
 .conv-menu.show{display:block}
 .conv-menu-item{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:13px;color:var(--text-dim);cursor:pointer;white-space:nowrap}
 .conv-menu-item:hover{background:var(--bg-hover);color:var(--text)}
@@ -275,6 +275,58 @@ button{font-family:inherit;cursor:pointer}
 .exec-step .exec-output{margin-top:8px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;background:var(--bg);padding:10px;border-radius:6px;border:1px solid var(--border)}
 .exec-step .exec-output .streaming-cursor{display:inline-block;width:2px;height:14px;background:var(--accent);animation:blink 0.8s infinite;vertical-align:text-bottom;margin-left:1px}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* ── Flow Header Redesign ─────────────────────────────────── */
+.flow-header{justify-content:flex-start}
+.flow-header .flow-back{background:none;border:none;color:var(--text-dim);padding:6px;border-radius:6px;cursor:pointer;display:flex;align-items:center;transition:background 0.15s,color 0.15s}
+.flow-header .flow-back:hover{background:var(--bg-hover);color:var(--text)}
+.flow-header .flow-info{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.flow-header .flow-info h1{font-size:15px;font-weight:600;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flow-header .flow-meta{display:flex;gap:16px;font-size:12px;color:var(--text-dim)}
+.flow-header .flow-meta .meta-item{display:flex;align-items:center;gap:4px}
+.flow-header .flow-run-btn{display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border);color:var(--text);padding:7px 14px;border-radius:var(--radius);font-size:13px;cursor:pointer;transition:background 0.15s,border-color 0.15s}
+.flow-header .flow-run-btn:hover{background:var(--bg-hover);border-color:var(--text-dim)}
+
+/* ── Flow Visualizer ──────────────────────────────────────── */
+.flow-visualizer{position:relative;min-height:400px}
+.flow-graph-scroll{position:relative;overflow:auto;min-height:400px;padding:40px 0}
+.flow-graph-canvas{position:relative;margin:0 auto}
+.flow-graph-canvas svg{position:absolute;top:0;left:0;pointer-events:none}
+.flow-graph-canvas svg path{fill:none;stroke-width:2}
+.flow-graph-canvas svg defs marker path{fill:var(--text-dim);stroke:none}
+
+.flow-node{position:absolute;background:var(--bg-card);border:2px solid var(--border);border-radius:12px;padding:16px 20px;cursor:default;transition:border-color 0.2s,box-shadow 0.2s,transform 0.15s;z-index:2}
+.flow-node:hover{transform:translateY(-2px);z-index:10}
+.flow-node-header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.flow-node-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.flow-node-info{min-width:0}
+.flow-node-name{font-size:14px;font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flow-node-agent{font-size:11px;display:flex;align-items:center;gap:4px}
+.flow-node-agent .agent-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.flow-node-num{position:absolute;top:-10px;left:-10px;width:22px;height:22px;border-radius:50%;background:var(--bg-alt);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text-dim)}
+.flow-node-tooltip{display:none;position:absolute;bottom:calc(100% + 12px);left:50%;transform:translateX(-50%);background:var(--bg-alt);border:1px solid var(--border);border-radius:8px;padding:12px 16px;width:280px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,0.4);pointer-events:none}
+.flow-node:hover .flow-node-tooltip{display:block}
+.flow-node-tooltip::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:6px solid transparent;border-top-color:var(--border)}
+.flow-node-tooltip .tt-label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+.flow-node-tooltip .tt-text{font-size:13px;line-height:1.5;color:var(--text);word-break:break-word;white-space:pre-wrap;max-height:120px;overflow-y:auto}
+.flow-node-tooltip .tt-vars{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.flow-node-tooltip .tt-var-row{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim);margin-top:4px}
+.flow-var-badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;background:rgba(88,166,255,0.1);color:var(--accent);border:1px solid rgba(88,166,255,0.15)}
+
+.flow-node-exec{position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--border)}
+.flow-node-exec.waiting{background:var(--border)}
+.flow-node-exec.running{background:var(--accent);animation:pulse 1.5s infinite}
+.flow-node-exec.completed{background:var(--success)}
+.flow-node-exec.failed{background:var(--danger)}
+
+/* ── Run Modal ────────────────────────────────────────────── */
+.flow-run-modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:200;animation:fadeIn 0.15s}
+.flow-run-modal .modal{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:24px;width:480px;max-width:90vw}
+.flow-run-modal .modal h3{font-size:15px;margin-bottom:12px}
+.flow-run-modal .modal p{font-size:13px;color:var(--text-dim);margin-bottom:12px}
+.flow-run-modal textarea{width:100%;min-height:100px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;resize:vertical;margin-bottom:16px;outline:none}
+.flow-run-modal textarea:focus{border-color:var(--accent)}
+.flow-run-modal .modal-actions{display:flex;gap:8px;justify-content:flex-end}
 </style>
 </head>
 <body>
@@ -321,9 +373,14 @@ button{font-family:inherit;cursor:pointer}
     <!-- Flow View -->
     <div class="flow-view" id="flow-view">
       <div class="flow-header">
-        <button class="btn btn-sm" onclick="backToChat()">← 返回</button>
-        <h1 id="flow-title">Task Flow</h1>
-        <div class="flow-actions" id="flow-actions"></div>
+        <button class="flow-back" id="flow-back-btn" onclick="backToChat()">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="flow-info">
+          <h1 id="flow-title">Task Flow</h1>
+          <div class="flow-meta" id="flow-meta"></div>
+        </div>
+        <div id="flow-actions"></div>
       </div>
       <div class="flow-body" id="flow-body"></div>
     </div>
@@ -1367,7 +1424,15 @@ function toggleConvMenu(convId) {
   if (!menu) return;
   const wasOpen = menu.classList.contains('show');
   closeAllConvMenus();
-  if (!wasOpen) menu.classList.add('show');
+  if (!wasOpen) {
+    const btn = document.querySelector(`[data-menu-conv="${convId}"]`);
+    if (btn) {
+      const r = btn.getBoundingClientRect();
+      menu.style.left = (r.right - 140) + 'px';
+      menu.style.top = r.bottom + 'px';
+    }
+    menu.classList.add('show');
+  }
 }
 
 function closeAllConvMenus() {
@@ -1500,6 +1565,7 @@ function switchToFlowView(view) {
 function backToChat() {
   flowState.view = 'chat';
   flowState.currentFlow = null;
+  closeRunModal();
   document.getElementById('chat-view').classList.remove('hidden');
   document.getElementById('flow-view').classList.remove('active');
   renderFlowList();
@@ -1601,39 +1667,138 @@ async function selectFlow(flowId) {
 function showFlowDetail(flow) {
   switchToFlowView('detail');
   document.getElementById('flow-title').textContent = flow.name;
-  let stepsHtml = '';
-  if (flow.steps) {
-    for (let i = 0; i < flow.steps.length; i++) {
-      stepsHtml += renderStepPreview(flow.steps[i], i);
-    }
-  }
+  // Update back button behavior
+  const backBtn = document.getElementById('flow-back-btn');
+  backBtn.onclick = backToChat;
+  // Meta
+  const agents = new Set((flow.steps || []).map(s => s.agent_id));
+  document.getElementById('flow-meta').innerHTML =
+    '<span class="meta-item">⚡ ' + (flow.steps || []).length + ' 步骤</span>' +
+    '<span class="meta-item">👤 ' + agents.size + ' Agent</span>';
+  // Actions
   document.getElementById('flow-actions').innerHTML =
-    '<button class="btn btn-primary btn-sm" onclick="showFlowRun(\'' + flow.id + '\')">执行</button> ' +
-    '<button class="btn btn-sm" onclick="deleteFlow(\'' + flow.id + '\')">删除</button>';
-  document.getElementById('flow-body').innerHTML =
-    '<div class="flow-detail">' +
-      '<p class="flow-desc">' + esc(flow.description || '无描述') + '</p>' +
-      '<div class="flow-steps">' + stepsHtml + '</div>' +
-    '</div>';
+    '<button class="flow-run-btn" onclick="showRunModal()">▶ Run</button>';
+  // Body
+  renderFlowGraph(flow);
 }
 
-function showFlowRun(flowId) {
+function renderFlowGraph(flow) {
+  const body = document.getElementById('flow-body');
+  const steps = flow.steps || [];
+  if (!steps.length) {
+    body.innerHTML = '<div class="empty-state"><p>此流程暂无步骤</p></div>';
+    return;
+  }
+
+  // Build agent lookup
+  const agentMap = {};
+  for (const a of state.agents) agentMap[a.id] = a;
+
+  // Layout constants
+  const NODE_W = 200, NODE_H = 100, PAD_X = 80, PAD_Y = 80, MARGIN = 40;
+
+  // Compute positions
+  const positions = [];
+  for (let i = 0; i < steps.length; i++) {
+    positions.push({
+      x: MARGIN + i * (NODE_W + PAD_X),
+      y: MARGIN
+    });
+  }
+  const totalW = positions.length > 0 ? positions[positions.length - 1].x + NODE_W + MARGIN : 400;
+  const totalH = MARGIN + NODE_H + MARGIN + 80;
+
+  // Build HTML
+  let html = '<div class="flow-visualizer"><div class="flow-graph-scroll"><div class="flow-graph-canvas" style="width:' + totalW + 'px;height:' + totalH + 'px">';
+
+  // SVG arrows
+  html += '<svg width="' + totalW + '" height="' + totalH + '" viewBox="0 0 ' + totalW + ' ' + totalH + '">';
+  html += '<defs><marker id="flow-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="var(--text-dim)" stroke="none"/></marker></defs>';
+  for (let i = 0; i < steps.length - 1; i++) {
+    const x1 = positions[i].x + NODE_W, y1 = positions[i].y + NODE_H / 2;
+    const x2 = positions[i + 1].x, y2 = positions[i + 1].y + NODE_H / 2;
+    const mx = (x1 + x2) / 2;
+    const outputVar = steps[i].output_var;
+    const inputVar = (steps[i + 1].input_vars && steps[i + 1].input_vars[0]) || '';
+    const varLabel = outputVar || inputVar || '';
+    html += '<path d="M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2 + '" stroke="var(--text-dim)" stroke-opacity="0.35" marker-end="url(#flow-arrow)"/>';
+    if (varLabel) {
+      const lx = mx, ly = Math.min(y1, y2) - 14;
+      html += '<rect x="' + (lx - 30) + '" y="' + (ly - 8) + '" width="60" height="16" rx="8" fill="var(--bg-alt)" stroke="var(--border)" stroke-opacity="0.5"/>';
+      html += '<text x="' + lx + '" y="' + (ly + 4) + '" text-anchor="middle" font-size="10" fill="var(--text-dim)" font-family="monospace">' + esc(varLabel) + '</text>';
+    }
+  }
+  html += '</svg>';
+
+  // Nodes
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const agent = agentMap[s.agent_id] || {};
+    const color = agent.color || '#58a6ff';
+    const avatar = agent.avatar || '🤖';
+    const agentName = agent.name || s.agent_id;
+    const pos = positions[i];
+    const borderColor = color + '60';
+    const prompt = (s.prompt_template || '').substring(0, 200);
+
+    html += '<div class="flow-node" style="left:' + pos.x + 'px;top:' + pos.y + 'px;width:' + NODE_W + 'px;border-color:' + borderColor + ';box-shadow:0 0 24px ' + color + '12" data-step-id="' + s.id + '">';
+    html += '<div class="flow-node-num">' + (i + 1) + '</div>';
+    html += '<div class="flow-node-header">';
+    html += '<div class="flow-node-avatar" style="background:' + color + '20;color:' + color + '">' + avatar + '</div>';
+    html += '<div class="flow-node-info">';
+    html += '<div class="flow-node-name">' + esc(s.name || 'Step ' + (i + 1)) + '</div>';
+    html += '<div class="flow-node-agent"><span class="agent-dot" style="background:' + color + '"></span>' + esc(agentName) + '</div>';
+    html += '</div></div>';
+    if (s.output_var) {
+      html += '<div style="margin-top:6px"><span class="flow-var-badge">→ ' + esc(s.output_var) + '</span></div>';
+    }
+
+    // Tooltip
+    html += '<div class="flow-node-tooltip">';
+    html += '<div class="tt-label">Prompt 模板</div>';
+    html += '<div class="tt-text">' + esc(prompt || '无') + '</div>';
+    if (s.input_vars && s.input_vars.length) {
+      html += '<div class="tt-vars"><div class="tt-label">输入变量</div>';
+      for (const v of s.input_vars) {
+        html += '<div class="tt-var-row">← <span style="font-family:monospace;color:var(--accent)">' + esc(v) + '</span></div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+
+    html += '</div>';
+  }
+
+  html += '</div></div></div>';
+  body.innerHTML = html;
+}
+
+function showRunModal() {
   const flow = flowState.currentFlow;
   if (!flow) return;
-  switchToFlowView('exec');
-  document.getElementById('flow-title').textContent = flow.name + ' — 执行';
-  document.getElementById('flow-actions').innerHTML = '';
-  document.getElementById('flow-body').innerHTML =
-    '<div class="flow-exec">' +
-      '<p style="color:var(--text-dim);font-size:13px;margin-bottom:12px">输入要处理的内容，将按流程严格顺序执行。</p>' +
-      '<textarea id="flow-run-input" style="width:100%;min-height:80px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);color:var(--text);font-size:14px;font-family:inherit;resize:vertical;margin-bottom:12px" placeholder="输入任务内容..."></textarea>' +
-      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:20px">' +
-        '<button class="btn" onclick="showFlowDetail(flowState.currentFlow)">取消</button>' +
-        '<button class="btn btn-primary" id="flow-run-btn" onclick="executeFlow(\'' + flowId + '\')">开始执行</button>' +
+  const overlay = document.createElement('div');
+  overlay.className = 'flow-run-modal';
+  overlay.id = 'flow-run-modal';
+  overlay.innerHTML =
+    '<div class="modal">' +
+      '<h3>' + esc(flow.name) + '</h3>' +
+      '<p>输入要处理的内容，将按流程严格顺序执行。</p>' +
+      '<textarea id="flow-run-input" placeholder="输入任务内容..."></textarea>' +
+      '<div class="modal-actions">' +
+        '<button class="btn" onclick="closeRunModal()">取消</button>' +
+        '<button class="btn btn-primary" id="flow-run-btn" onclick="executeFlow(\'' + flow.id + '\')">▶ 开始执行</button>' +
       '</div>' +
-      '<div id="flow-exec-timeline"></div>' +
     '</div>';
+  document.body.appendChild(overlay);
   document.getElementById('flow-run-input').focus();
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) closeRunModal();
+  });
+}
+
+function closeRunModal() {
+  const modal = document.getElementById('flow-run-modal');
+  if (modal) modal.remove();
 }
 
 async function executeFlow(flowId) {
@@ -1644,18 +1809,41 @@ async function executeFlow(flowId) {
   btn.textContent = '执行中...';
   try {
     const result = await api.post('/api/task-flows/' + flowId + '/run', { input_text: inputText });
+    closeRunModal();
     const runId = result.run_id;
     const flow = flowState.currentFlow;
-    const timeline = document.getElementById('flow-exec-timeline');
-    let timelineHtml = '';
+    // Switch to execution view with graph
+    switchToFlowView('exec');
+    document.getElementById('flow-title').textContent = flow.name;
+    document.getElementById('flow-meta').innerHTML =
+      '<span class="meta-item" style="color:var(--accent)">⚡ 正在执行...</span>';
+    document.getElementById('flow-actions').innerHTML = '';
+    const backBtn = document.getElementById('flow-back-btn');
+    backBtn.onclick = backToFlowGraph;
+    // Build graph with execution indicators
+    renderFlowGraph(flow);
+    // Add exec status dots to nodes
+    if (flow.steps) {
+      for (const s of flow.steps) {
+        const node = document.querySelector('.flow-node[data-step-id="' + s.id + '"]');
+        if (node) {
+          const dot = document.createElement('div');
+          dot.className = 'flow-node-exec waiting';
+          dot.id = 'exec-dot-' + s.id;
+          node.appendChild(dot);
+        }
+      }
+    }
+    // Build output panel
+    let outputHtml = '<div style="margin-top:32px;max-width:' + (flow.steps.length * 280 + 80) + 'px;margin-left:auto;margin-right:auto">';
     if (flow.steps) {
       for (let i = 0; i < flow.steps.length; i++) {
         const s = flow.steps[i];
         const agent = state.agents.find(a => a.id === s.agent_id);
-        const agentName = agent ? agent.name : s.agent_id;
         const agentColor = agent ? agent.color : '#888';
         const agentAvatar = agent ? agent.avatar : '🤖';
-        timelineHtml +=
+        const agentName = agent ? agent.name : s.agent_id;
+        outputHtml +=
           '<div class="exec-step" id="exec-step-' + s.id + '">' +
             '<div class="step-header">' +
               '<span class="exec-status waiting" id="exec-status-' + s.id + '"></span>' +
@@ -1666,13 +1854,19 @@ async function executeFlow(flowId) {
           '</div>';
       }
     }
-    timeline.innerHTML = timelineHtml;
+    outputHtml += '</div>';
+    document.getElementById('flow-body').insertAdjacentHTML('beforeend', outputHtml);
     connectFlowStream(runId);
   } catch (e) {
     alert('执行失败: ' + (e.message || e));
     btn.disabled = false;
-    btn.textContent = '开始执行';
+    btn.textContent = '▶ 开始执行';
   }
+}
+
+function backToFlowGraph() {
+  const flow = flowState.currentFlow;
+  if (flow) showFlowDetail(flow);
 }
 
 function connectFlowStream(runId) {
@@ -1682,8 +1876,10 @@ function connectFlowStream(runId) {
     const statusEl = document.getElementById('exec-status-' + d.step_id);
     const stepEl = document.getElementById('exec-step-' + d.step_id);
     const outputEl = document.getElementById('exec-output-' + d.step_id);
+    const dotEl = document.getElementById('exec-dot-' + d.step_id);
     if (statusEl) statusEl.className = 'exec-status running';
     if (stepEl) stepEl.className = 'exec-step running';
+    if (dotEl) dotEl.className = 'flow-node-exec running';
     if (outputEl) { outputEl.style.display = 'block'; outputEl.innerHTML = ''; }
   });
   es.addEventListener('step_text', function(e) {
@@ -1704,8 +1900,10 @@ function connectFlowStream(runId) {
     const statusEl = document.getElementById('exec-status-' + d.step_id);
     const stepEl = document.getElementById('exec-step-' + d.step_id);
     const outputEl = document.getElementById('exec-output-' + d.step_id);
+    const dotEl = document.getElementById('exec-dot-' + d.step_id);
     if (statusEl) statusEl.className = 'exec-status completed';
     if (stepEl) stepEl.className = 'exec-step completed';
+    if (dotEl) dotEl.className = 'flow-node-exec completed';
     if (outputEl) { const c = outputEl.querySelector('.streaming-cursor'); if (c) c.remove(); }
   });
   es.addEventListener('step_error', function(e) {
@@ -1713,13 +1911,35 @@ function connectFlowStream(runId) {
     const statusEl = document.getElementById('exec-status-' + d.step_id);
     const stepEl = document.getElementById('exec-step-' + d.step_id);
     const outputEl = document.getElementById('exec-output-' + d.step_id);
+    const dotEl = document.getElementById('exec-dot-' + d.step_id);
     if (statusEl) statusEl.className = 'exec-status failed';
     if (stepEl) stepEl.className = 'exec-step failed';
+    if (dotEl) dotEl.className = 'flow-node-exec failed';
     if (outputEl) { outputEl.style.display = 'block'; outputEl.innerHTML = '<span style="color:var(--danger)">Error: ' + esc(d.error || 'Unknown') + '</span>'; }
   });
-  es.addEventListener('flow_done', function() { es.close(); const b = document.getElementById('flow-run-btn'); if (b) { b.disabled = false; b.textContent = '重新执行'; } });
-  es.addEventListener('flow_error', function() { es.close(); const b = document.getElementById('flow-run-btn'); if (b) { b.disabled = false; b.textContent = '重新执行'; } });
-  es.addEventListener('error', function() { es.close(); const b = document.getElementById('flow-run-btn'); if (b) { b.disabled = false; b.textContent = '重新执行'; } });
+  es.addEventListener('flow_done', function() {
+    es.close();
+    const metaEl = document.getElementById('flow-meta');
+    if (metaEl) metaEl.innerHTML = '<span class="meta-item" style="color:var(--success)">✓ 执行完成</span>';
+    const actionsEl = document.getElementById('flow-actions');
+    if (actionsEl) actionsEl.innerHTML = '<button class="flow-run-btn" onclick="showRunModal()">▶ 重新执行</button>';
+    const backBtn = document.getElementById('flow-back-btn');
+    if (backBtn) backBtn.onclick = backToFlowGraph;
+  });
+  es.addEventListener('flow_error', function() {
+    es.close();
+    const metaEl = document.getElementById('flow-meta');
+    if (metaEl) metaEl.innerHTML = '<span class="meta-item" style="color:var(--danger)">✕ 执行失败</span>';
+    const actionsEl = document.getElementById('flow-actions');
+    if (actionsEl) actionsEl.innerHTML = '<button class="flow-run-btn" onclick="showRunModal()">▶ 重新执行</button>';
+  });
+  es.addEventListener('error', function() {
+    es.close();
+    const metaEl = document.getElementById('flow-meta');
+    if (metaEl) metaEl.innerHTML = '<span class="meta-item" style="color:var(--danger)">✕ 连接中断</span>';
+    const actionsEl = document.getElementById('flow-actions');
+    if (actionsEl) actionsEl.innerHTML = '<button class="flow-run-btn" onclick="showRunModal()">▶ 重新执行</button>';
+  });
 }
 
 async function deleteFlow(flowId) {
