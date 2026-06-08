@@ -136,9 +136,8 @@ class Orchestrator:
             mention_queue = next_queue
             depth += 1
 
-        # Done
-        event_buffer.push("done", {})
-        event_buffer.close()
+        # NOTE: "done" and buffer.close() are handled by the caller (_run in conversations.py)
+        # so that concurrent tasks can share the same buffer without premature closure.
 
         # Only clean up if we're still the active run
         if self._active_run.get(conv_id) == run_id:
