@@ -67,8 +67,23 @@ class MessageBus:
                 msg.setdefault("timestamp", datetime.now().isoformat())
                 self.messages.append(msg)
             self._sequence = last_seq
+            self._sort_by_order()
             await self._persist()
             return last_seq
+
+    def _sort_by_order(self):
+        """Re-sort messages so replies appear after their user message.
+
+        Uses reply_to_seq (the seq of the user message being replied to) as
+        the primary sort key for assistant messages.  User messages sort by
+        their own seq.  This fixes ordering when concurrent _run tasks finish
+        out of order.
+        """
+        def _order(msg):
+            if msg.get("role") == "user":
+                return msg.get("seq", 0)
+            return msg.get("reply_to_seq", msg.get("seq", 0))
+        self.messages.sort(key=_order)
 
     async def _persist(self):
         """Write messages to JSON file. Called under _write_lock."""

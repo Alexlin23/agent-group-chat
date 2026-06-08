@@ -51,6 +51,7 @@ class AgentWorker:
         hermes_key: str,
         task_id: str,
         depth: int = 0,
+        reply_to_seq: int = 0,
     ):
         self.agent_id = agent_id
         self.agents = agents
@@ -60,6 +61,7 @@ class AgentWorker:
         self.hermes_key = hermes_key
         self.task_id = task_id
         self.depth = depth
+        self.reply_to_seq = reply_to_seq
         self._cancelled = False
         self.response: str = ""
         self.mentioned_agents: list[str] = []
@@ -117,6 +119,7 @@ class AgentWorker:
             "agent_id": self.agent_id,
             "task_id": self.task_id,
             "full_response": self.response,
+            "reply_to_seq": self.reply_to_seq,
         })
 
         # Check for @mentions
@@ -130,6 +133,7 @@ class AgentWorker:
             "content": clean_response,
             "agent_id": self.agent_id,
             "task_id": self.task_id,
+            "reply_to_seq": self.reply_to_seq,
             "timestamp": datetime.now().isoformat(),
         }
 

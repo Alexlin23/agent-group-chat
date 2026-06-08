@@ -130,7 +130,7 @@ async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv
     # Store user message via MessageBus
     bus = await s.bus_manager.get_or_create(conv_id, app_state.conversations[conv_id].get("messages", []))
     user_msg = {"role": "user", "content": req.content, "agent_id": None}
-    await bus.append(user_msg)
+    user_seq = await bus.append(user_msg)
     app_state.conversations[conv_id]["messages"] = bus.messages
     save_conversation(s.DATA_DIR, app_state.conversations[conv_id])
 
@@ -141,7 +141,7 @@ async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv
     buffer = EventBuffer()
     s.active_buffers[conv_id] = buffer
 
-    async def _run(my_buffer=buffer):
+    async def _run(my_buffer=buffer, reply_to_seq=user_seq):
         try:
             await s.orchestrator.process_message(
                 conv_id=conv_id,
@@ -149,13 +149,15 @@ async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv
                 target_ids=target_ids,
                 bus=bus,
                 event_buffer=my_buffer,
+                reply_to_seq=reply_to_seq,
             )
             app_state.conversations[conv_id]["messages"] = bus.messages
             save_conversation(s.DATA_DIR, app_state.conversations[conv_id])
         except Exception as e:
             my_buffer.push("error", {"error": str(e)[:300]})
-            my_buffer.close()
         finally:
+            my_buffer.push("done", {})
+            my_buffer.close()
             if s.active_buffers.get(conv_id) is my_buffer:
                 s.active_buffers.pop(conv_id, None)
 
