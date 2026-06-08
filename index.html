@@ -87,6 +87,17 @@ button{font-family:inherit;cursor:pointer}
 .conv-menu-item.danger{color:var(--danger)}
 .conv-menu-item.danger:hover{background:rgba(248,81,73,0.1)}
 .conv-menu-divider{height:1px;background:var(--border);margin:2px 0}
+/* Batch mode */
+.batch-bar{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg-card)}
+.batch-bar .batch-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:var(--radius);font-size:12px;cursor:pointer;transition:background 0.15s,color 0.15s}
+.batch-bar .batch-btn:hover{background:var(--bg-hover);color:var(--text)}
+.batch-bar .batch-btn.danger{border-color:var(--danger);color:var(--danger)}
+.batch-bar .batch-btn.danger:hover{background:rgba(248,81,73,0.1)}
+.batch-bar .batch-count{font-size:12px;color:var(--text-dim);margin-left:auto}
+.conv-checkbox{width:16px;height:16px;border:1.5px solid var(--border);border-radius:3px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:border-color 0.15s,background 0.15s}
+.conv-checkbox.checked{background:var(--accent);border-color:var(--accent)}
+.conv-checkbox.checked::after{content:'✓';color:#fff;font-size:11px;font-weight:700}
+.conv-item.batch-selected{background:var(--bg-hover)}
 .new-conv-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px;margin:4px 8px;border-radius:var(--radius);border:1px dashed var(--border);color:var(--text-dim);font-size:13px;background:none;width:calc(100% - 16px)}
 .new-conv-btn:hover{border-color:var(--accent);color:var(--accent)}
 
@@ -454,6 +465,8 @@ let state = {
   streamingAgents: new Map(), // key: taskId, value: {agentId, response}
   lastEventId: -1,           // last received event ID
   defaultAgentId: null,       // global default agent (localStorage)
+  batchMode: false,           // batch delete mode
+  batchSelected: new Set(),   // selected conv ids in batch mode
 };
 const COLORS = ['#4FC3F7','#81C784','#FFB74D','#CE93D8','#F06292','#4DD0E1','#AED581','#FFD54F','#BCAAA4','#90CAF9','#EF5350','#AB47BC','#26A69A','#FF7043','#5C6BC0','#66BB6A','#EC407A','#29B6F6'];
 
@@ -686,8 +699,19 @@ async function loadConversations() {
 
 function renderConvList() {
   const el = document.getElementById('conv-list');
-  el.innerHTML = state.conversations.map(c => `
-    <div class="conv-item ${state.currentConv === c.id ? 'active' : ''}" data-conv-id="${c.id}">
+  el.innerHTML = state.conversations.map(c => {
+    const isSelected = state.currentConv === c.id;
+    const isBatchSel = state.batchSelected.has(c.id);
+    const cls = `conv-item${isSelected && !state.batchMode ? ' active' : ''}${isBatchSel ? ' batch-selected' : ''}`;
+    if (state.batchMode) {
+      return `
+    <div class="${cls}" data-conv-id="${c.id}">
+      <div class="conv-checkbox${isBatchSel ? ' checked' : ''}" data-batch-conv="${c.id}"></div>
+      <span class="conv-name">${esc(c.name)}</span>
+    </div>`;
+    }
+    return `
+    <div class="${cls}" data-conv-id="${c.id}">
       <span class="conv-name">${esc(c.name)}</span>
       <button class="conv-menu-btn" data-menu-conv="${c.id}" title="更多">⋯</button>
       <div class="conv-menu" id="conv-menu-${c.id}">
@@ -695,9 +719,11 @@ function renderConvList() {
         <div class="conv-menu-divider"></div>
         <div class="conv-menu-item" data-action="rename" data-conv-id="${c.id}">✎ 重命名</div>
         <div class="conv-menu-item danger" data-action="delete" data-conv-id="${c.id}">✕ 删除</div>
+        <div class="conv-menu-divider"></div>
+        <div class="conv-menu-item" data-action="batch-delete" data-conv-id="${c.id}">批量删除</div>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 async function createConversation() {
@@ -797,6 +823,108 @@ async function deleteConversation(id) {
     document.getElementById('chat-title').textContent = 'Agent Group Chat v2';
     document.getElementById('chat-status').textContent = '';
   }
+  await loadConversations();
+}
+
+// ── Batch Delete ──────────────────────────────────────────
+function enterBatchMode() {
+  state.batchMode = true;
+  state.batchSelected = new Set();
+  closeAllConvMenus();
+  renderConvList();
+  // Insert batch bar above conv-list
+  const convListEl = document.getElementById('conv-list');
+  if (!document.getElementById('batch-bar')) {
+    const bar = document.createElement('div');
+    bar.id = 'batch-bar';
+    bar.className = 'batch-bar';
+    bar.innerHTML = `
+      <button class="batch-btn" onclick="selectAllBatch()">全选</button>
+      <button class="batch-btn danger" id="batch-delete-btn" onclick="batchDelete()">删除(0)</button>
+      <span class="batch-count" id="batch-count-label"></span>
+      <button class="batch-btn" onclick="exitBatchMode()">取消</button>
+    `;
+    convListEl.parentElement.insertBefore(bar, convListEl);
+  }
+}
+
+function exitBatchMode() {
+  state.batchMode = false;
+  state.batchSelected = new Set();
+  const bar = document.getElementById('batch-bar');
+  if (bar) bar.remove();
+  renderConvList();
+}
+
+function toggleBatchItem(convId) {
+  if (state.batchSelected.has(convId)) {
+    state.batchSelected.delete(convId);
+  } else {
+    state.batchSelected.add(convId);
+  }
+  // Update checkbox visual
+  const cb = document.querySelector(`.conv-checkbox[data-batch-conv="${convId}"]`);
+  if (cb) {
+    cb.classList.toggle('checked', state.batchSelected.has(convId));
+  }
+  const item = cb ? cb.closest('.conv-item') : null;
+  if (item) {
+    item.classList.toggle('batch-selected', state.batchSelected.has(convId));
+  }
+  updateBatchCount();
+}
+
+function selectAllBatch() {
+  const allIds = state.conversations.map(c => c.id);
+  const allSelected = allIds.length > 0 && allIds.every(id => state.batchSelected.has(id));
+  if (allSelected) {
+    state.batchSelected = new Set();
+  } else {
+    state.batchSelected = new Set(allIds);
+  }
+  // Update all checkboxes visually
+  document.querySelectorAll('.conv-checkbox[data-batch-conv]').forEach(cb => {
+    const id = cb.dataset.batchConv;
+    cb.classList.toggle('checked', state.batchSelected.has(id));
+    const item = cb.closest('.conv-item');
+    if (item) item.classList.toggle('batch-selected', state.batchSelected.has(id));
+  });
+  updateBatchCount();
+}
+
+function updateBatchCount() {
+  const n = state.batchSelected.size;
+  const btn = document.getElementById('batch-delete-btn');
+  if (btn) btn.textContent = `删除(${n})`;
+  const label = document.getElementById('batch-count-label');
+  if (label) label.textContent = n > 0 ? `已选 ${n} 项` : '';
+}
+
+async function batchDelete() {
+  const ids = Array.from(state.batchSelected);
+  if (ids.length === 0) return;
+  if (!confirm(`确定删除选中的 ${ids.length} 个对话？`)) return;
+  // Delete each conversation via API
+  for (const id of ids) {
+    try {
+      if (state.currentConv === id) disconnectStream();
+      await api.del(`/api/conversations/${id}`);
+      delete state.convCache[id];
+      deleteDraft(id);
+      if (localStorage.getItem('agent-chat-last-conv') === id) {
+        localStorage.removeItem('agent-chat-last-conv');
+      }
+    } catch (e) { console.error('Batch delete failed for', id, e); }
+  }
+  if (ids.includes(state.currentConv)) {
+    state.currentConv = null;
+    state.convData = null;
+    renderMessages();
+    enableInput(false);
+    document.getElementById('chat-title').textContent = 'Agent Group Chat v2';
+    document.getElementById('chat-status').textContent = '';
+  }
+  exitBatchMode();
   await loadConversations();
 }
 
@@ -1400,6 +1528,9 @@ document.getElementById('color-row').addEventListener('click', (e) => {
 });
 
 document.getElementById('conv-list').addEventListener('click', (e) => {
+  // Batch mode: checkbox click toggles selection
+  const cb = e.target.closest('.conv-checkbox[data-batch-conv]');
+  if (cb) { e.stopPropagation(); toggleBatchItem(cb.dataset.batchConv); return; }
   // ⋯ menu button — toggle dropdown
   const menuBtn = e.target.closest('.conv-menu-btn');
   if (menuBtn) { e.stopPropagation(); toggleConvMenu(menuBtn.dataset.menuConv); return; }
@@ -1413,7 +1544,13 @@ document.getElementById('conv-list').addEventListener('click', (e) => {
     if (action === 'set-default') showDefaultAgentPicker(convId);
     else if (action === 'rename') renameConversation(convId);
     else if (action === 'delete') deleteConversation(convId);
+    else if (action === 'batch-delete') enterBatchMode();
     return;
+  }
+  // Batch mode: clicking conv item toggles its checkbox
+  if (state.batchMode) {
+    const batchItem = e.target.closest('.conv-item');
+    if (batchItem) { e.stopPropagation(); toggleBatchItem(batchItem.dataset.convId); return; }
   }
   const item = e.target.closest('.conv-item');
   if (item) selectConversation(item.dataset.convId);
@@ -1502,6 +1639,7 @@ document.addEventListener('click', (e) => {
 // Close menus/picker on Escape
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    if (state.batchMode) { exitBatchMode(); return; }
     closeAllConvMenus();
     const picker = document.getElementById('default-agent-picker');
     if (picker) picker.remove();
