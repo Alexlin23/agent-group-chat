@@ -1282,31 +1282,6 @@ async function _sendToBackend(content) {
   }
 }
 
-function parseTargetsFromText(text) {
-  const nameToId = {};
-  for (const a of state.agents) {
-    nameToId[a.name] = a.id;
-    nameToId[a.id] = a.id;
-  }
-  const pattern = /@(\S+)/g;
-  const found = [];
-  let match;
-  while ((match = pattern.exec(text)) !== null) {
-    const id = nameToId[match[1]];
-    if (id && !found.includes(id)) found.push(id);
-  }
-  return found.length > 0 ? found : [resolveDefaultTarget()];
-}
-
-function resolveDefaultTarget() {
-  // Per-conversation default > global default > first agent
-  const convId = state.currentConv;
-  if (convId) {
-    const convDefault = state.convData?.default_agent_id || state.convCache[convId]?.default_agent_id;
-    if (convDefault && state.agents.find(a => a.id === convDefault)) return convDefault;
-  }
-  if (state.defaultAgentId && state.agents.find(a => a.id === state.defaultAgentId)) return state.defaultAgentId;
-  return state.agents[0]?.id || '';
 }
 
 // ── @mention Autocomplete ───────────────────────────────────
