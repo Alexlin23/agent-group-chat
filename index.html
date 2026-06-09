@@ -1011,7 +1011,7 @@ function disconnectStream() {
 }
 
 function tryConnectStream(convId) {
-  const url = `/api/conversations/${convId}/stream?last_id=-1`;
+  const url = `/api/conversations/${convId}/stream?last_id=${state.lastEventId}`;
   const es = new EventSource(url);
 
   if (!state.streamCount) state.streamCount = 0;
@@ -1231,7 +1231,7 @@ async function _sendToBackend(content) {
   const targetConvId = state.currentConv;
 
   // Add user message to UI immediately
-  const userMsg = { role: 'user', content, agent_id: null };
+  const userMsg = { role: 'user', content, agent_id: null, timestamp: new Date().toISOString() };
   if (state.convData) state.convData.messages.push(userMsg);
   renderMessages();
 
@@ -1259,14 +1259,11 @@ async function _sendToBackend(content) {
     }
   }
 
-  // Parse targets
-  const targets = parseTargetsFromText(content);
-
   updateSendBtn();
 
   try {
-    // POST message — returns immediately, agent processing starts in background
-    const resp = await api.post(`/api/conversations/${targetConvId}/message`, { content, targets });
+    // POST message — backend parses @mentions and resolves default agent
+    const resp = await api.post(`/api/conversations/${targetConvId}/message`, { content });
 
     if (resp.status === 'accepted') {
       // Connect to SSE stream for this conversation

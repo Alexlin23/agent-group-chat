@@ -70,4 +70,13 @@ async def delete_agent(agent_id: str):
         raise HTTPException(404, "Agent not found")
     del agents[agent_id]
     save_agents(_get_agents_file(), agents)
+    # Clean up dangling default_agent_id references in conversations
+    import app_state
+    from storage import save_conversation as _save_conv
+    import sys
+    data_dir = sys.modules['__main__'].DATA_DIR
+    for conv in app_state.conversations.values():
+        if conv.get("default_agent_id") == agent_id:
+            conv["default_agent_id"] = None
+            _save_conv(data_dir, conv)
     return {"ok": True}

@@ -68,6 +68,7 @@ class MessageBus:
 
     async def _persist(self):
         """Write messages to JSON file. Called under _write_lock."""
+        import asyncio
         fp = self.data_dir / f"{self.conv_id}.json"
         conv_data = {
             "id": self.conv_id,
@@ -75,8 +76,10 @@ class MessageBus:
             "created_at": self._created_at,
             "messages": self.messages,
         }
-        with open(fp, "w", encoding="utf-8") as f:
-            json.dump(conv_data, f, ensure_ascii=False, indent=2)
+        def _write():
+            with open(fp, "w", encoding="utf-8") as f:
+                json.dump(conv_data, f, ensure_ascii=False, indent=2)
+        await asyncio.to_thread(_write)
 
 
 class MessageBusManager:
