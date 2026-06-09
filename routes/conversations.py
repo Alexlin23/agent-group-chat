@@ -130,7 +130,7 @@ async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv
     # Store user message via MessageBus
     bus = await s.bus_manager.get_or_create(conv_id, app_state.conversations[conv_id].get("messages", []))
     user_msg = {"role": "user", "content": req.content, "agent_id": None}
-    user_seq = await bus.append(user_msg)
+    await bus.append(user_msg)
     app_state.conversations[conv_id]["messages"] = bus.messages
     save_conversation(s.DATA_DIR, app_state.conversations[conv_id])
 
@@ -141,7 +141,7 @@ async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv
     buffer = EventBuffer()
     s.active_buffers[conv_id] = buffer
 
-    async def _run(my_buffer=buffer, reply_to_seq=user_seq):
+    async def _run(my_buffer=buffer):
         try:
             await s.orchestrator.process_message(
                 conv_id=conv_id,
@@ -149,7 +149,6 @@ async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv
                 target_ids=target_ids,
                 bus=bus,
                 event_buffer=my_buffer,
-                reply_to_seq=reply_to_seq,
             )
             app_state.conversations[conv_id]["messages"] = bus.messages
             save_conversation(s.DATA_DIR, app_state.conversations[conv_id])

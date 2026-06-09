@@ -21,6 +21,7 @@ def load_agents(agents_file: Path) -> dict[str, dict]:
             "name": a.get("name", aid),
             "color": a.get("color", "#888888"),
             "avatar": a.get("avatar", "🤖"),
+            "description": a.get("description", ""),
             "system_prompt": a.get("system_prompt", ""),
         }
     return result

@@ -11,6 +11,7 @@ class AgentCreate(BaseModel):
     name: str
     color: str = "#888888"
     avatar: str = "🤖"
+    description: str = ""
     system_prompt: str = ""
 
 
@@ -18,6 +19,7 @@ class AgentUpdate(BaseModel):
     name: Optional[str] = None
     color: Optional[str] = None
     avatar: Optional[str] = None
+    description: Optional[str] = None
     system_prompt: Optional[str] = None
 
 

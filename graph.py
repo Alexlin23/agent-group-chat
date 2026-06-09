@@ -20,6 +20,7 @@ from langgraph.graph import END, StateGraph
 from hermes_client import stream_hermes
 from text_utils import (
     build_context_text,
+    build_peer_descriptions,
     strip_agent_prefix,
     extract_mentioned_agents,
     MAX_MENTION_DEPTH,
@@ -76,6 +77,7 @@ async def process_agent(state: ChatState) -> dict:
     agent = agents[agent_id]
     response_count = dict(state["agent_response_count"])
     response_count[agent_id] = response_count.get(agent_id, 0) + 1
+    start_time = datetime.now().isoformat()
 
     # Emit agent_start
     task_id = f"{state['conv_id']}_{agent_id}_{depth}"
@@ -83,14 +85,17 @@ async def process_agent(state: ChatState) -> dict:
         "agent_id": agent_id,
         "name": agent["name"],
         "task_id": task_id,
+        "timestamp": start_time,
     })
 
     # Build system prompt with full conversation context
     context_text = build_context_text(state["messages"], agents)
     skill_text = _load_project_skill()
+    peer_text = build_peer_descriptions(agent_id, agents)
     system_prompt = (
         f"{agent['system_prompt']}\n\n"
-        f"{skill_text}"
+        f"{skill_text}\n\n"
+        f"{peer_text}\n\n"
         f"---\n以下是完整的对话历史（包含所有参与者）：\n\n{context_text}\n---\n\n"
         f"请以 [{agent['name']}] 的身份回复最后一条消息。"
         f"你的回复会自动添加到对话中，不需要加 [{agent['name']}] 前缀。"
@@ -121,6 +126,7 @@ async def process_agent(state: ChatState) -> dict:
         "agent_id": agent_id,
         "task_id": task_id,
         "full_response": full_response,
+        "timestamp": start_time,
     })
 
     # Clean and store the response
@@ -130,7 +136,7 @@ async def process_agent(state: ChatState) -> dict:
         "content": clean_response,
         "agent_id": agent_id,
         "task_id": task_id,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": start_time,
     }
 
     # Check for @mentions in the response

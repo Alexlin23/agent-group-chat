@@ -434,6 +434,8 @@ button{font-family:inherit;cursor:pointer}
     <input type="text" id="agent-avatar" placeholder="例: 🏗" maxlength="4" value="🤖">
     <label>颜色</label>
     <div class="color-row" id="color-row"></div>
+    <label>描述（给其他Agent看的简介）</label>
+    <input type="text" id="agent-description" placeholder="例：系统架构师，负责方案设计和模块划分">
     <label>System Prompt</label>
     <div style="position:relative">
       <textarea id="agent-prompt" placeholder="定义这个agent的角色和行为..."></textarea>
@@ -461,7 +463,7 @@ let state = {
   editingAgentId: null,
   mentionIndex: -1,
   filteredAgents: [],
-  activeEventSource: null,   // current EventSource connection
+  activeEventSources: [],    // EventSource connections array
   streamingAgents: new Map(), // key: taskId, value: {agentId, response}
   lastEventId: -1,           // last received event ID
   defaultAgentId: null,       // global default agent (localStorage)
@@ -618,6 +620,7 @@ function showAgentModal(agentId) {
     document.getElementById('agent-id').value = a.id;
     document.getElementById('agent-id').disabled = true;
     document.getElementById('agent-avatar').value = a.avatar;
+    document.getElementById('agent-description').value = a.description || '';
     document.getElementById('agent-prompt').value = a.system_prompt;
     selectColor(a.color);
   } else {
@@ -628,6 +631,7 @@ function showAgentModal(agentId) {
     document.getElementById('agent-id').value = '';
     document.getElementById('agent-id').disabled = false;
     document.getElementById('agent-avatar').value = '🤖';
+    document.getElementById('agent-description').value = '';
     document.getElementById('agent-prompt').value = '';
     selectColor(COLORS[state.agents.length % COLORS.length]);
   }
@@ -642,14 +646,15 @@ async function saveAgent() {
   const name = document.getElementById('agent-name').value.trim();
   const id = document.getElementById('agent-id').value.trim();
   const avatar = document.getElementById('agent-avatar').value.trim() || '🤖';
+  const description = document.getElementById('agent-description').value.trim();
   const prompt = document.getElementById('agent-prompt').value.trim();
   const color = document.querySelector('.color-swatch.selected')?.dataset.color || COLORS[0];
   if (!name || !id) return showToast('名称和ID不能为空');
   if (state.editingAgentId) {
-    await api.put(`/api/agents/${state.editingAgentId}`, { name, color, avatar, system_prompt: prompt });
+    await api.put(`/api/agents/${state.editingAgentId}`, { name, color, avatar, description, system_prompt: prompt });
   } else {
     try {
-      await api.post('/api/agents', { id, name, color, avatar, system_prompt: prompt });
+      await api.post('/api/agents', { id, name, color, avatar, description, system_prompt: prompt });
     } catch (e) {
       return showToast('ID已存在或创建失败');
     }
@@ -758,11 +763,9 @@ async function selectConversation(id) {
     state.convCache[state.currentConv] = { ...state.convData, messages: clean };
   }
 
-  // 3. Disconnect old stream
-  if (state.activeEventSource) {
-    state.activeEventSource.close();
-    state.activeEventSource = null;
-  }
+  // 3. Disconnect all streams
+  for (const es of state.activeEventSources) es.close();
+  state.activeEventSources = [];
 
   // 4. Switch conversation
   state.currentConv = id;
@@ -1001,10 +1004,8 @@ function highlightMentions(text) {
 // ── Streaming (v2: EventSource) ─────────────────────────────
 
 function disconnectStream() {
-  if (state.activeEventSource) {
-    state.activeEventSource.close();
-    state.activeEventSource = null;
-  }
+  for (const es of state.activeEventSources) es.close();
+  state.activeEventSources = [];
   state.streamingAgents.clear();
   state.lastEventId = -1;
 }
@@ -1015,7 +1016,7 @@ function tryConnectStream(convId) {
 
   if (!state.streamCount) state.streamCount = 0;
   state.streamCount++;
-  state.activeEventSource = es;
+  state.activeEventSources.push(es);
 
   es.addEventListener('agent_start', (e) => {
     const evt = JSON.parse(e.data);
@@ -1036,9 +1037,13 @@ function tryConnectStream(convId) {
     const msgs = getTargetMessages();
     const existingIdx = msgs.findIndex(m => m._streaming && m._task_id === taskId);
     if (existingIdx < 0) {
-      msgs.push({
-        role: 'assistant', content: '', agent_id: evt.agent_id, _streaming: true, _task_id: taskId,
-      });
+      const placeholder = {
+        role: 'assistant', content: '', agent_id: evt.agent_id,
+        _streaming: true, _task_id: taskId,
+        timestamp: evt.timestamp,
+      };
+      msgs.push(placeholder);
+      sortMessages(msgs);
     }
 
     // Create streaming UI (only if DOM element doesn't exist)
@@ -1098,7 +1103,7 @@ function tryConnectStream(convId) {
     const idx = msgs.findLastIndex(m => m._streaming && m._task_id === taskId);
     if (idx >= 0) {
       if (evt.full_response) {
-        msgs[idx] = { role: 'assistant', content: evt.full_response, agent_id: evt.agent_id };
+        msgs[idx] = { role: 'assistant', content: evt.full_response, agent_id: evt.agent_id, timestamp: msgs[idx].timestamp || evt.timestamp };
       } else {
         msgs.splice(idx, 1);
       }
@@ -1139,6 +1144,7 @@ function tryConnectStream(convId) {
     }
     if (es.readyState === EventSource.CLOSED) {
       es.close();
+      state.activeEventSources = state.activeEventSources.filter(x => x !== es);
       state.streamCount = Math.max(0, (state.streamCount || 0) - 1);
       if (state.streamCount <= 0) onStreamEnd();
     }
@@ -1146,12 +1152,14 @@ function tryConnectStream(convId) {
 
   es.addEventListener('done', (e) => {
     es.close();
+    state.activeEventSources = state.activeEventSources.filter(x => x !== es);
     state.streamCount = Math.max(0, (state.streamCount || 0) - 1);
     if (state.streamCount <= 0) onStreamEnd();
   });
 
   es.addEventListener('no_task', (e) => {
     es.close();
+    state.activeEventSources = state.activeEventSources.filter(x => x !== es);
     state.streamCount = Math.max(0, (state.streamCount || 0) - 1);
     if (state.streamCount <= 0) onStreamEnd();
   });
@@ -1164,6 +1172,8 @@ function onStreamEnd() {
   // Clean up leftover _streaming markers (agent_done handles per-agent cleanup)
   if (state.convData) {
     state.convData.messages.forEach(m => { delete m._streaming; delete m._task_id; });
+    // Re-sort messages by timestamp
+    sortMessages(state.convData.messages);
   }
   document.querySelectorAll('[data-stream-active]').forEach(el => el.removeAttribute('data-stream-active'));
   state.streamingAgents.clear();
@@ -1172,6 +1182,10 @@ function onStreamEnd() {
   updateSendBtn();
   enableInput(true);
   loadConversations();
+}
+
+function sortMessages(msgs) {
+  msgs.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
 }
 
 function getTargetMessages() {

@@ -21,8 +21,7 @@ class MessageBus:
         self.data_dir = data_dir
         self.messages: list[dict] = list(initial_messages or [])
         self._write_lock = asyncio.Lock()
-        self._sequence = len(self.messages)  # monotonic sequence number
-        self._name = conv_id  # default name, updated from persisted data
+        self._name = conv_id
         self._created_at = datetime.now().isoformat()
 
         # Try to load metadata from existing file
@@ -47,43 +46,25 @@ class MessageBus:
     def message_count(self) -> int:
         return len(self.messages)
 
-    async def append(self, msg: dict) -> int:
-        """Atomically append a message. Returns the sequence number."""
+    async def append(self, msg: dict):
+        """Atomically append a message."""
         async with self._write_lock:
-            self._sequence += 1
-            msg.setdefault("seq", self._sequence)
             msg.setdefault("timestamp", datetime.now().isoformat())
             self.messages.append(msg)
             await self._persist()
-            return self._sequence
 
-    async def append_batch(self, msgs: list[dict]) -> int:
-        """Atomically append multiple messages. Returns last sequence number."""
+    async def append_batch(self, msgs: list[dict]):
+        """Atomically append multiple messages, then sort by timestamp."""
         async with self._write_lock:
-            last_seq = self._sequence
             for msg in msgs:
-                last_seq += 1
-                msg.setdefault("seq", last_seq)
                 msg.setdefault("timestamp", datetime.now().isoformat())
                 self.messages.append(msg)
-            self._sequence = last_seq
             self._sort_by_order()
             await self._persist()
-            return last_seq
 
     def _sort_by_order(self):
-        """Re-sort messages so replies appear after their user message.
-
-        Uses reply_to_seq (the seq of the user message being replied to) as
-        the primary sort key for assistant messages.  User messages sort by
-        their own seq.  This fixes ordering when concurrent _run tasks finish
-        out of order.
-        """
-        def _order(msg):
-            if msg.get("role") == "user":
-                return msg.get("seq", 0)
-            return msg.get("reply_to_seq", msg.get("seq", 0))
-        self.messages.sort(key=_order)
+        """Sort messages by timestamp (ISO 8601 lexicographic)."""
+        self.messages.sort(key=lambda m: m.get("timestamp", ""))
 
     async def _persist(self):
         """Write messages to JSON file. Called under _write_lock."""

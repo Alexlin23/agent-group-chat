@@ -38,7 +38,6 @@ class Orchestrator:
         target_ids: list[str],
         bus: MessageBus,
         event_buffer: EventBuffer,
-        reply_to_seq: int = 0,
     ):
         """Process a user message: spawn workers for target agents, handle @mentions."""
         run_id = uuid.uuid4().hex[:8]
@@ -70,7 +69,6 @@ class Orchestrator:
                 hermes_key=self.hermes_key,
                 task_id=task_id,
                 depth=depth,
-                reply_to_seq=reply_to_seq,
             )
             self._active_workers[conv_id].append(worker)
 

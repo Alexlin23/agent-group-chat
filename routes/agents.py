@@ -40,7 +40,8 @@ async def create_agent(req: AgentCreate):
         raise HTTPException(409, "Agent ID already exists")
     agent = {
         "id": aid, "name": req.name, "color": req.color,
-        "avatar": req.avatar, "system_prompt": req.system_prompt,
+        "avatar": req.avatar, "description": req.description,
+        "system_prompt": req.system_prompt,
     }
     agents[aid] = agent
     save_agents(_get_agents_file(), agents)
@@ -56,6 +57,7 @@ async def update_agent(agent_id: str, req: AgentUpdate):
     if req.name is not None: a["name"] = req.name
     if req.color is not None: a["color"] = req.color
     if req.avatar is not None: a["avatar"] = req.avatar
+    if req.description is not None: a["description"] = req.description
     if req.system_prompt is not None: a["system_prompt"] = req.system_prompt
     save_agents(_get_agents_file(), agents)
     return a

@@ -125,3 +125,22 @@ def parse_mentions(text: str, agent_list: list[dict]) -> tuple[list[str], str]:
 # Shared constants
 MAX_RESPONSES_PER_AGENT = 3
 MAX_MENTION_DEPTH = 5
+
+
+def build_peer_descriptions(current_agent_id: str, agents: dict) -> str:
+    """Build a formatted list of other agents' descriptions for prompt injection.
+
+    Excludes the current agent. Returns empty string if no peers.
+    """
+    lines = []
+    for aid, agent in agents.items():
+        if aid == current_agent_id:
+            continue
+        desc = agent.get("description", "")
+        if desc:
+            lines.append(f"- {agent['name']}：{desc}")
+        else:
+            lines.append(f"- {agent['name']}")
+    if not lines:
+        return ""
+    return "--- 可协作的Agent ---\n" + "\n".join(lines)

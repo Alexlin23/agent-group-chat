@@ -13,6 +13,7 @@ from event_buffer import EventBuffer
 from hermes_client import stream_hermes
 from text_utils import (
     build_context_text,
+    build_peer_descriptions,
     strip_agent_prefix,
     extract_mentioned_agents,
     MAX_MENTION_DEPTH,
@@ -51,7 +52,6 @@ class AgentWorker:
         hermes_key: str,
         task_id: str,
         depth: int = 0,
-        reply_to_seq: int = 0,
     ):
         self.agent_id = agent_id
         self.agents = agents
@@ -61,7 +61,6 @@ class AgentWorker:
         self.hermes_key = hermes_key
         self.task_id = task_id
         self.depth = depth
-        self.reply_to_seq = reply_to_seq
         self._cancelled = False
         self.response: str = ""
         self.mentioned_agents: list[str] = []
@@ -72,20 +71,24 @@ class AgentWorker:
             return None
 
         agent = self.agents[self.agent_id]
+        start_time = datetime.now().isoformat()
 
         # Emit agent_start
         self.event_buffer.push("agent_start", {
             "agent_id": self.agent_id,
             "name": agent["name"],
             "task_id": self.task_id,
+            "timestamp": start_time,
         })
 
         # Build system prompt
         context_text = build_context_text(self.snapshot, self.agents)
         skill_text = _load_project_skill()
+        peer_text = build_peer_descriptions(self.agent_id, self.agents)
         system_prompt = (
             f"{agent['system_prompt']}\n\n"
-            f"{skill_text}"
+            f"{skill_text}\n\n"
+            f"{peer_text}\n\n"
             f"---\n以下是完整的对话历史（包含所有参与者）：\n\n{context_text}\n---\n\n"
             f"请以 [{agent['name']}] 的身份回复最后一条消息。"
             f"你的回复会自动添加到对话中，不需要加 [{agent['name']}] 前缀。"
@@ -119,7 +122,7 @@ class AgentWorker:
             "agent_id": self.agent_id,
             "task_id": self.task_id,
             "full_response": self.response,
-            "reply_to_seq": self.reply_to_seq,
+            "timestamp": start_time,
         })
 
         # Check for @mentions
@@ -133,8 +136,7 @@ class AgentWorker:
             "content": clean_response,
             "agent_id": self.agent_id,
             "task_id": self.task_id,
-            "reply_to_seq": self.reply_to_seq,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": start_time,
         }
 
     def cancel(self):
