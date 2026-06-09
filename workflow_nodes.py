@@ -134,6 +134,7 @@ async def agent_node(
             })
         return {
             "status": "failed",
+            "completed_nodes": [node_id],
             "error": f"Node '{node_id}' failed: {str(e)[:200]}",
         }
 

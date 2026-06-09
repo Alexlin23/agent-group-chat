@@ -202,8 +202,9 @@ async def _run_graph(
 
     # 检查是否需要暂停等待人类输入
     if result.get("waiting_for_human"):
-        cp_state = {k: v for k, v in result.items()
-                    if k not in ("event_buffer", "agents_ref", "hermes_url", "hermes_key")}
+        # 只保存可序列化的字段（来自 WorkflowState）
+        serializable_keys = set(WorkflowState.__annotations__.keys())
+        cp_state = {k: v for k, v in result.items() if k in serializable_keys}
         save_checkpoint(run_id, cp_state)
         if event_buffer:
             event_buffer.push("workflow_paused", {"workflow_id": wf_id, "run_id": run_id, "human_prompt": result.get("human_prompt", "")})
