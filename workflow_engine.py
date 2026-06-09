@@ -21,6 +21,28 @@ from workflow_graph import build_graph_from_definition
 from workflow_state import WorkflowState, WorkflowContext, create_initial_state
 
 
+# ── 向后兼容（task_flow.py 仍引用旧名） ──
+
+async def execute_flow(
+    flow: dict,
+    input_text: str,
+    agents: dict,
+    hermes_url: str,
+    hermes_key: str,
+    event_buffer=None,
+) -> dict:
+    """Backward-compatible wrapper for old TaskFlowManager."""
+    result = await execute_workflow(
+        workflow_def=flow,
+        input_text=input_text,
+        agents=agents,
+        hermes_url=hermes_url,
+        hermes_key=hermes_key,
+        event_buffer=event_buffer,
+    )
+    return result.get("variables", {})
+
+
 # ── Checkpoint 存储 ──
 # 运行中的检查点存在内存里，key = run_id
 _checkpoints: dict[str, dict] = {}

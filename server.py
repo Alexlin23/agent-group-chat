@@ -22,6 +22,7 @@ from message_bus import MessageBusManager
 from orchestrator import Orchestrator
 from storage import load_agents, load_conversations
 from task_flow import TaskFlowManager
+from workflow import WorkflowManager
 
 # ── Config ────────────────────────────────────────────────────────────────────
 HERMES_API_URL = os.getenv("HERMES_API_URL", "http://127.0.0.1:8642")
@@ -33,6 +34,8 @@ DATA_DIR = BASE_DIR / "conversations"
 AGENTS_FILE = BASE_DIR / "agents.yaml"
 FLOWS_DIR = BASE_DIR / "task_flows"
 RUNS_DIR = BASE_DIR / "task_flow_runs"
+WORKFLOWS_DIR = BASE_DIR / "workflows"
+WORKFLOW_RUNS_DIR = BASE_DIR / "workflow_runs"
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Agent Group Chat v2")
@@ -52,13 +55,14 @@ conversation_locks: dict[str, asyncio.Lock] = {}
 bus_manager = MessageBusManager(DATA_DIR)
 orchestrator: Optional[Orchestrator] = None
 task_flow_manager: Optional[TaskFlowManager] = None
+workflow_manager: Optional[WorkflowManager] = None
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
 async def startup():
-    global orchestrator, task_flow_manager
+    global orchestrator, task_flow_manager, workflow_manager
     app_state.agents = load_agents(AGENTS_FILE)
     app_state.conversations = load_conversations(DATA_DIR)
     for cid, conv in app_state.conversations.items():
@@ -78,6 +82,15 @@ async def startup():
         hermes_key=HERMES_API_KEY,
     )
     task_flow_manager.load()
+    # Initialize Workflow manager (LangGraph engine)
+    workflow_manager = WorkflowManager(
+        workflows_dir=WORKFLOWS_DIR,
+        runs_dir=WORKFLOW_RUNS_DIR,
+        agents=app_state.agents,
+        hermes_url=HERMES_API_URL,
+        hermes_key=HERMES_API_KEY,
+    )
+    workflow_manager.load()
     # Reset stale streaming flags
     from storage import save_conversation as _save_conv
     for conv in app_state.conversations.values():
@@ -86,6 +99,7 @@ async def startup():
             _save_conv(DATA_DIR, conv)
     print(f"Loaded {len(app_state.agents)} agents, {len(app_state.conversations)} conversations")
     print(f"Task Flows: {len(task_flow_manager.flows)}")
+    print(f"Workflows: {len(workflow_manager.workflows)}")
     print(f"Hermes API: {HERMES_API_URL}")
     print(f"Server running on port {SERVER_PORT}")
 
@@ -95,10 +109,12 @@ async def startup():
 from routes.agents import router as agents_router
 from routes.conversations import router as conversations_router
 from routes.task_flows import router as task_flows_router
+from routes.workflows import router as workflows_router
 
 app.include_router(agents_router)
 app.include_router(conversations_router)
 app.include_router(task_flows_router)
+app.include_router(workflows_router)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -122,6 +138,7 @@ async def health():
         "conversations": len(app_state.conversations),
         "active_tasks": sum(1 for t in active_tasks.values() if not t.done()),
         "task_flows": len(task_flow_manager.flows) if task_flow_manager else 0,
+        "workflows": len(workflow_manager.workflows) if workflow_manager else 0,
     }
 
 
