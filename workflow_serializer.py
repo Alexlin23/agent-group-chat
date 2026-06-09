@@ -113,8 +113,14 @@ def validate_workflow(data: dict, agents: Optional[dict] = None) -> list[str]:
     if len(start_edges) != 1:
         errors.append(f"Expected exactly one edge from __start__, found {len(start_edges)}")
     end_edges = [e for e in edges if e.get("to") == "__end__"]
-    if not end_edges:
-        errors.append("No edge leads to __end__ — workflow has no exit")
+    # 也检查条件边是否有到 __end__ 的路径
+    cond_end_paths = any(
+        target == "__end__"
+        for ce in data.get("conditional_edges", [])
+        for target in ce.get("paths", {}).values()
+    )
+    if not end_edges and not cond_end_paths:
+        errors.append("No path leads to __end__ — workflow has no exit")
 
     return errors
 

@@ -77,27 +77,38 @@ class WorkflowManager:
         return wf
 
     def update_workflow(self, wf_id: str, **kwargs) -> Optional[dict]:
-        """Update an existing workflow definition."""
+        """Update an existing workflow definition.
+
+        Validates proposed changes before applying to avoid corrupting
+        in-memory state on failure.
+        """
         wf = self.workflows.get(wf_id)
         if not wf:
             return None
+
+        # 构建候选状态（不修改原对象）
+        candidate = {**wf}
         if "name" in kwargs and kwargs["name"] is not None:
-            wf["name"] = kwargs["name"]
+            candidate["name"] = kwargs["name"]
         if "description" in kwargs and kwargs["description"] is not None:
-            wf["description"] = kwargs["description"]
+            candidate["description"] = kwargs["description"]
         if "nodes" in kwargs and kwargs["nodes"] is not None:
-            wf["nodes"] = kwargs["nodes"]
+            candidate["nodes"] = kwargs["nodes"]
         if "edges" in kwargs and kwargs["edges"] is not None:
-            wf["edges"] = kwargs["edges"]
+            candidate["edges"] = kwargs["edges"]
         if "conditional_edges" in kwargs and kwargs["conditional_edges"] is not None:
-            wf["conditional_edges"] = kwargs["conditional_edges"]
-        wf["updated_at"] = datetime.now().isoformat()
-        # Validate after applying updates
-        errors = validate_workflow(wf, self.agents)
+            candidate["conditional_edges"] = kwargs["conditional_edges"]
+        candidate["updated_at"] = datetime.now().isoformat()
+
+        # 先验证候选状态
+        errors = validate_workflow(candidate, self.agents)
         if errors:
             raise ValueError(f"Invalid update: {'; '.join(errors)}")
-        save_json(self.workflows_dir, wf)
-        return wf
+
+        # 验证通过才应用
+        self.workflows[wf_id] = candidate
+        save_json(self.workflows_dir, candidate)
+        return candidate
 
     def delete_workflow(self, wf_id: str) -> bool:
         if wf_id not in self.workflows:
