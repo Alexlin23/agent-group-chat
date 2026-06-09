@@ -1,93 +1,63 @@
-# Agent Group Chat v2
+# Agent Group Chat
 
-A local multi-agent group chat application where AI agents collaborate on tasks through role-based interaction. Users chat naturally, agents respond based on their defined roles, and `@mention` chains coordinate work across agents.
+多 Agent 群聊系统，AI 代理通过角色协作完成任务。用户自然对话，Agent 按角色回复，`@mention` 链协调跨 Agent 工作。
 
-## Architecture
+## 功能
+
+- **群聊** — 多个 Agent 在同一对话中协作，用 `@名字` 指定回复
+- **Agent 管理** — 动态添加/编辑/删除 Agent，每个 Agent 有独立角色和提示词
+- **Task Flow 工作流** — 多 Agent 流水线，步骤间变量传递，支持 AI 自动生成
+- **流式输出** — SSE 实时推送，边生成边显示
+- **@mention 链** — Agent 回复中 @其他 Agent 会自动触发后续回复
+
+## 架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Frontend (index.html)                                      │
-│  Single-file vanilla JS, dark/light theme, SSE streaming    │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ REST + SSE
-┌──────────────────────▼──────────────────────────────────────┐
-│  FastAPI Backend (server.py)                                │
-│  ┌──────────────┐ ┌──────────────────┐ ┌──────────────────┐ │
-│  │ routes/       │ │ routes/           │ │ routes/           │ │
-│  │ agents.py     │ │ conversations.py  │ │ task_flows.py     │ │
-│  └──────────────┘ └──────────────────┘ └──────────────────┘ │
-│  ┌──────────────┐ ┌──────────────────┐ ┌──────────────────┐ │
-│  │ app_state.py  │ │ orchestrator.py   │ │ agent_worker.py   │ │
-│  │ (shared dict) │ │ (@mention chains) │ │ (Hermes API call) │ │
-│  └──────────────┘ └──────────────────┘ └──────────────────┘ │
-│  ┌──────────────┐ ┌──────────────────┐ ┌──────────────────┐ │
-│  │ message_bus.py│ │ event_buffer.py   │ │ task_flow.py      │ │
-│  │ (per-conv msg)│ │ (SSE pub/sub)     │ │ (flow CRUD+exec)  │ │
-│  └──────────────┘ └──────────────────┘ └──────────────────┘ │
-│  ┌──────────────┐ ┌──────────────────┐ ┌──────────────────┐ │
-│  │ storage.py    │ │ text_utils.py     │ │ hermes_client.py  │ │
-│  │ (YAML + JSON) │ │ (@mention parse)  │ │ (API client)      │ │
-│  └──────────────┘ └──────────────────┘ └──────────────────┘ │
-│  ┌──────────────────────────────────────────────────────────┐│
-│  │ workflow_engine.py — Task Flow step executor              ││
-│  └──────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────┘
-                       │
-         ┌─────────────▼─────────────┐
-         │  Hermes API Server (:8642) │
-         │  OpenAI-compatible LLM API │
-         └───────────────────────────┘
+┌─────────────────────────────────────────┐
+│  前端 (index.html)                       │
+│  单文件 Vanilla JS，深色/浅色主题，SSE    │
+└────────────────┬────────────────────────┘
+                 │ REST + SSE
+┌────────────────▼────────────────────────┐
+│  FastAPI 后端 (server.py :8081)          │
+│  ┌────────────┐ ┌─────────────────────┐ │
+│  │ Agent CRUD  │ │ 对话 + 消息 + SSE    │ │
+│  └────────────┘ └─────────────────────┘ │
+│  ┌────────────┐ ┌─────────────────────┐ │
+│  │ 调度器      │ │ Agent Worker         │ │
+│  │ @mention链  │ │ Hermes API 调用      │ │
+│  └────────────┘ └─────────────────────┘ │
+│  ┌────────────┐ ┌─────────────────────┐ │
+│  │ 工作流引擎  │ │ 消息总线 + 事件缓冲   │ │
+│  └────────────┘ └─────────────────────┘ │
+└────────────────┬────────────────────────┘
+                 │
+┌────────────────▼────────────────────────┐
+│  Hermes API Server (:8642)               │
+│  OpenAI 兼容 LLM API                     │
+└─────────────────────────────────────────┘
 ```
 
-### Core Modules
-
-| Module | Purpose |
-|--------|---------|
-| `server.py` | FastAPI app, startup, route registration, health endpoint, frontend serving |
-| `app_state.py` | Shared mutable state — `agents` and `conversations` dicts |
-| `routes/agents.py` | Agent CRUD (list, get, create, update, delete) |
-| `routes/conversations.py` | Conversation CRUD + message send + SSE stream + task status |
-| `routes/task_flows.py` | Task Flow CRUD + generate + run + SSE stream |
-| `orchestrator.py` | Concurrent agent scheduling, `@mention` chain propagation (max depth 5) |
-| `agent_worker.py` | Independent async unit that calls Hermes API for one agent |
-| `message_bus.py` | Per-conversation message store with atomic append and persistence |
-| `event_buffer.py` | In-memory event log with async subscription, replay support, heartbeats |
-| `task_flow.py` | TaskFlowManager — flow CRUD, Hermes-generated flow creation, execution |
-| `workflow_engine.py` | Executes task flow steps as linear pipelines with `{{variable}}` passing |
-| `storage.py` | YAML agents + JSON conversations/flows load/save/delete |
-| `text_utils.py` | `@mention` parsing (CJK-aware), context building, agent prefix stripping |
-| `hermes_client.py` | Hermes API client — `stream_hermes()` (SSE) and `call_hermes()` (one-shot) |
-| `models.py` | Pydantic request/response schemas |
-| `index.html` | Single-file frontend — CSS + JS, no framework |
-
-## How to Run
-
-### Prerequisites
-
-- Python 3.12+
-- Hermes API Server running on `http://127.0.0.1:8642` (OpenAI-compatible `/v1/chat/completions` endpoint)
-
-### Quick Start
+## 快速开始
 
 ```bash
+# 前置条件：Hermes API Server 运行在 http://127.0.0.1:8642
+
 chmod +x start.sh
 ./start.sh
 ```
 
-The script will:
-1. Create a virtualenv if needed and install dependencies
-2. Check Hermes API Server connectivity
-3. Start the server on `http://localhost:8081`
+访问 http://localhost:8081。
 
-### Environment Variables
+### 环境变量
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HERMES_API_URL` | `http://127.0.0.1:8642` | Hermes API Server URL |
-| `HERMES_API_KEY` | `$API_SERVER_KEY` or `local-chat` | API authentication key |
-| `CHAT_SERVER_PORT` | `8081` | Server listen port |
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `HERMES_API_URL` | `http://127.0.0.1:8642` | Hermes API 地址 |
+| `HERMES_API_KEY` | `$API_SERVER_KEY` | API 认证密钥 |
+| `CHAT_SERVER_PORT` | `8081` | 服务端口 |
 
-### Manual Start
+### 手动启动
 
 ```bash
 python3 -m venv .venv
@@ -95,62 +65,9 @@ python3 -m venv .venv
 .venv/bin/python server.py
 ```
 
-### Systemd Service
+## Agent 配置
 
-The server can run as a systemd service. Configure `HERMES_API_URL`, `HERMES_API_KEY`, and `CHAT_SERVER_PORT` in the service environment.
-
-## API Endpoints
-
-### Health
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/health` | Server health + Hermes connectivity + stats |
-
-### Agents
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/agents` | List all agents |
-| `GET` | `/api/agents/{agent_id}` | Get agent by ID |
-| `POST` | `/api/agents` | Create agent |
-| `PUT` | `/api/agents/{agent_id}` | Update agent |
-| `DELETE` | `/api/agents/{agent_id}` | Delete agent |
-
-### Conversations
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/conversations` | List conversations (sorted by created_at) |
-| `POST` | `/api/conversations` | Create conversation |
-| `GET` | `/api/conversations/{conv_id}` | Get conversation with messages |
-| `PUT` | `/api/conversations/{conv_id}` | Update conversation name |
-| `DELETE` | `/api/conversations/{conv_id}` | Delete conversation and cancel active tasks |
-| `POST` | `/api/conversations/{conv_id}/message` | Send message, start agent processing (returns immediately) |
-| `GET` | `/api/conversations/{conv_id}/stream` | SSE stream — subscribe to agent events |
-| `GET` | `/api/conversations/{conv_id}/task_status` | Check task status (idle/running/done) |
-
-### Task Flows
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/task-flows` | List all task flows |
-| `POST` | `/api/task-flows` | Create task flow |
-| `POST` | `/api/task-flows/generate` | Generate flow from natural language via Hermes |
-| `GET` | `/api/task-flows/{flow_id}` | Get task flow |
-| `PUT` | `/api/task-flows/{flow_id}` | Update task flow |
-| `DELETE` | `/api/task-flows/{flow_id}` | Delete task flow |
-| `POST` | `/api/task-flows/{flow_id}/run` | Execute task flow (returns immediately) |
-| `GET` | `/api/task-flows/{flow_id}/runs` | List runs for a flow |
-| `GET` | `/api/task-flows/runs/{run_id}/stream` | SSE stream for flow execution events |
-
-### Path Validation
-
-Conversation IDs must match `^[0-9a-f]{12}$` (first 12 hex chars of uuid4). Enforced via `validate_conv_id` dependency.
-
-## Agents Configuration
-
-Agents are defined in `agents.yaml`:
+Agent 定义在 `agents.yaml`：
 
 ```yaml
 agents:
@@ -158,124 +75,78 @@ agents:
   name: 架构师
   color: '#EC407A'
   avatar: '🏗'
+  description: 系统架构师，负责方案设计、模块划分和接口定义
   system_prompt: |
     你是系统架构师（Architect），专注于整体设计、模块划分和接口定义。
     ...
 ```
 
-### Fields
+| 字段 | 说明 |
+|------|------|
+| `id` | 唯一标识，用于 @mention |
+| `name` | 显示名称 |
+| `description` | 给其他 Agent 看的一句话简介 |
+| `system_prompt` | Agent 的角色定义和行为规则 |
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Unique identifier, used in `@mention` targeting |
-| `name` | string | Display name, also usable in `@mention` |
-| `color` | string | Hex color for UI avatar/badge |
-| `avatar` | string | Emoji avatar |
-| `system_prompt` | string | LLM system prompt defining the agent's role and behavior |
+提示词组装时，系统自动注入其他 Agent 的 `description`，无需手动写协作信息。
 
-### @mention Rules
+## Task Flow 工作流
 
-- Users can `@agent_id` or `@agent_name` in messages to target specific agents
-- If no `@mention` is found, the first agent responds by default
-- Agent responses can `@mention` other agents, triggering a chain
-- Chain propagation: max depth 5, max 3 responses per agent per task
-- CJK character boundaries are handled correctly in mention parsing
+多 Agent 流水线，步骤间通过 `{{变量名}}` 传递数据。
 
-## Task Flows
+**创建方式：**
+- API 直接创建：`POST /api/task-flows`
+- AI 生成：`POST /api/task-flows/generate`（传入自然语言描述）
 
-Task Flows are structured multi-step agent pipelines. Each step targets an agent with a prompt template, and variables are passed between steps.
+**执行：**
+- `POST /api/task-flows/{id}/run`（传入输入内容）
+- SSE 流式监听执行事件
 
-### Step Format
+## API
 
-```json
-{
-  "id": "step_1",
-  "agent_id": "architect",
-  "name": "需求分析",
-  "prompt_template": "分析以下需求并给出架构方案：\n\n{{input}}",
-  "input_vars": ["input"],
-  "output_var": "architecture_plan",
-  "timeout": 300
-}
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/agents` | 列出所有 Agent |
+| `POST` | `/api/agents` | 创建 Agent |
+| `PUT` | `/api/agents/{id}` | 编辑 Agent |
+| `DELETE` | `/api/agents/{id}` | 删除 Agent |
+| `GET` | `/api/conversations` | 列出对话 |
+| `POST` | `/api/conversations` | 创建对话 |
+| `POST` | `/api/conversations/{id}/message` | 发送消息 |
+| `GET` | `/api/conversations/{id}/stream` | SSE 流式事件 |
+| `GET` | `/api/task-flows` | 列出工作流 |
+| `POST` | `/api/task-flows` | 创建工作流 |
+| `POST` | `/api/task-flows/generate` | AI 生成工作流 |
+| `POST` | `/api/task-flows/{id}/run` | 执行工作流 |
 
-### Variable Passing
+## 技术栈
 
-- First step can reference `{{input}}` (the user's original input)
-- Subsequent steps reference previous steps' `output_var` names
-- Templates use `{{variable_name}}` syntax
+- **后端：** Python 3.12, FastAPI, asyncio, Pydantic, LangGraph
+- **前端：** Vanilla JS，单文件 HTML
+- **流式：** Server-Sent Events (SSE)
+- **存储：** YAML (Agent) + JSON (对话/工作流)
+- **LLM：** OpenAI 兼容 API (Hermes)
 
-### Creating Flows
-
-**Manual:** `POST /api/task-flows` with steps array.
-
-**AI-Generated:** `POST /api/task-flows/generate` with a natural language description. Hermes will produce a structured flow definition that can be inspected before execution.
-
-### Executing Flows
-
-`POST /api/task-flows/{flow_id}/run` with `input_text`. Returns immediately with a `run_id`. Subscribe to `GET /api/task-flows/runs/{run_id}/stream` for SSE events.
-
-### SSE Event Types (Task Flow)
-
-| Event | Description |
-|-------|-------------|
-| `flow_start` | Flow execution began |
-| `step_start` | Step began executing |
-| `step_text` | Streaming text chunk from agent |
-| `step_done` | Step completed with full response |
-| `step_error` | Step failed |
-| `flow_error` | Flow execution failed |
-| `flow_done` | Flow completed with final variables |
-
-## Frontend Features
-
-- **Conversation switching** — Sidebar lists conversations; click to switch, messages load instantly
-- **Per-conversation streaming state** — `streamingAgents`, `lastEventId`, `convData` are cached per conversation; stale-event guards on SSE handlers prevent cross-talk
-- **Auto-rename** — When a conversation named "新对话" receives its first message, the frontend auto-generates a name via PUT before proceeding
-- **Drag-resizable input box** — Drag handle on top edge of input area; `hasManualHeight` flag prevents `autoResize` from overriding drag-set height
-- **Dark/Light theme** — CSS custom properties toggle via `[data-theme="light"]` on `<html>`; persisted in localStorage
-- **Toast notifications** — Non-blocking feedback for errors and actions
-- **@mention autocomplete** — Type `@` to see agent suggestions with avatar, name, and ID
-- **Agent management** — Create/edit/delete agents via modal dialogs with color picker
-- **Task Flow management** — Create, generate, edit, run, and monitor task flows
-- **Markdown rendering** — Agent responses support code blocks, lists, headings, blockquotes
-- **Event delegation** — Single listeners on parent containers for performant UI interaction
-- **Streaming cursor** — Blinking `▋` indicator on active streaming messages
-
-## Tech Stack
-
-- **Backend:** Python 3.12, FastAPI, asyncio, Pydantic, PyYAML, aiohttp
-- **Frontend:** Vanilla JavaScript (no framework), single-file HTML with inline CSS/JS
-- **Streaming:** Server-Sent Events (SSE) with replay support
-- **Storage:** YAML (agents), JSON files (conversations, task flows, runs)
-- **LLM API:** OpenAI-compatible `/v1/chat/completions` via Hermes API Server
-
-## Project Structure
+## 项目结构
 
 ```
 agent-group-chat/
-├── server.py              # FastAPI app entry point
-├── app_state.py           # Shared mutable state
-├── orchestrator.py        # Agent scheduling + @mention chains
-├── agent_worker.py        # Per-agent async processing
-├── message_bus.py         # Per-conversation message store
-├── event_buffer.py        # SSE event buffer with pub/sub
-├── task_flow.py           # TaskFlowManager (CRUD + execution)
-├── workflow_engine.py     # Task flow step executor
-├── storage.py             # YAML/JSON file I/O
-├── text_utils.py          # @mention parsing, context building
-├── hermes_client.py       # Hermes API client
-├── models.py              # Pydantic schemas
-├── agents.yaml            # Agent definitions
-├── index.html             # Single-file frontend
-├── start.sh               # One-click startup script
-├── requirements.txt       # Python dependencies
-├── routes/
-│   ├── __init__.py
-│   ├── agents.py          # Agent CRUD routes
-│   ├── conversations.py   # Conversation + message + SSE routes
-│   └── task_flows.py      # Task flow routes
-├── conversations/         # JSON conversation files (gitignored)
-├── task_flows/            # JSON flow definitions (gitignored)
-└── task_flow_runs/        # JSON run records (gitignored)
+├── server.py              # FastAPI 入口
+├── orchestrator.py        # Agent 调度 + @mention 链
+├── agent_worker.py        # 单 Agent 异步处理
+├── message_bus.py         # 对话消息管理
+├── event_buffer.py        # SSE 事件缓冲
+├── task_flow.py           # 工作流管理
+├── workflow_engine.py     # 工作流执行引擎
+├── storage.py             # YAML/JSON 持久化
+├── text_utils.py          # @mention 解析
+├── hermes_client.py       # Hermes API 客户端
+├── models.py              # Pydantic 模型
+├── agents.yaml            # Agent 定义
+├── index.html             # 前端
+├── routes/                # API 路由
+├── conversations/         # 对话数据 (gitignored)
+└── task_flows/            # 工作流定义 (gitignored)
 ```
+
+[English](README_EN.md)
