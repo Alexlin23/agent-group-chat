@@ -29,6 +29,7 @@ class GraphState(TypedDict, total=False):
     run_id: str
     current_node: str
     conditional_result: str
+    completed_nodes: list[str]  # 已完成节点，resume 时跳过
     variables: dict[str, Any]
     node_outputs: dict[str, Any]
     messages: Annotated[list[dict], operator.add]
@@ -65,6 +66,11 @@ def _make_node_func(node_def: dict):
     node_type = node_def.get("type", "agent")
 
     async def _node_func(state: GraphState) -> dict:
+        # 恢复时跳过已完成的节点
+        completed = state.get("completed_nodes", [])
+        if node_id in completed:
+            return {}
+
         ctx = WorkflowContext(
             event_buffer=state.get("event_buffer"),
             agents_ref=state.get("agents_ref", {}),

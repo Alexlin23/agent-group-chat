@@ -202,24 +202,29 @@ async def _run_graph(
 
     # 检查是否需要暂停等待人类输入
     if result.get("waiting_for_human"):
-        # 保存检查点
-        # 移除不可序列化的字段再保存
         cp_state = {k: v for k, v in result.items()
                     if k not in ("event_buffer", "agents_ref", "hermes_url", "hermes_key")}
         save_checkpoint(run_id, cp_state)
-
         if event_buffer:
-            event_buffer.push("workflow_paused", {
-                "workflow_id": wf_id,
-                "run_id": run_id,
-                "human_prompt": result.get("human_prompt", ""),
-            })
-            # 注意：不 push done，不 close，因为流程还没结束
-
+            event_buffer.push("workflow_paused", {"workflow_id": wf_id, "run_id": run_id, "human_prompt": result.get("human_prompt", "")})
         return {
-            "status": "paused",
-            "run_id": run_id,
+            "status": "paused", "run_id": run_id,
             "human_prompt": result.get("human_prompt", ""),
+            "variables": result.get("variables", {}),
+            "node_outputs": result.get("node_outputs", {}),
+            "execution_log": result.get("execution_log", []),
+        }
+
+    # 检查是否失败
+    if result.get("status") == "failed":
+        clear_checkpoint(run_id)
+        if event_buffer:
+            event_buffer.push("workflow_error", {"error": result.get("error", "")})
+            event_buffer.push("done", {})
+            event_buffer.close()
+        return {
+            "status": "failed",
+            "error": result.get("error", ""),
             "variables": result.get("variables", {}),
             "node_outputs": result.get("node_outputs", {}),
             "execution_log": result.get("execution_log", []),

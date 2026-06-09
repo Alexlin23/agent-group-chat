@@ -37,6 +37,7 @@ class WorkflowState(TypedDict, total=False):
     # ── 图遍历 ──
     current_node: str         # 当前执行到哪个节点
     conditional_result: str   # 条件分支的结果路径名（如 "approved"/"revise"）
+    completed_nodes: list[str]  # 已执行完毕的节点 ID（用于 resume 跳过）
 
     # ── 变量系统 ──
     # 节点间通过变量名传递数据，值可以是任意类型
@@ -82,6 +83,7 @@ def create_initial_state(
         run_id=run_id,
         current_node="__start__",
         conditional_result="",
+        completed_nodes=[],
         variables={"input": input_text},
         node_outputs={},
         messages=[{"role": "user", "content": input_text}],

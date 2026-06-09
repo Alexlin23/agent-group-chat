@@ -175,6 +175,7 @@ async def agent_node(
 
     return {
         "current_node": node_id,
+        "completed_nodes": [node_id],
         "variables": variables,
         "node_outputs": node_outputs,
         "messages": [new_message],
@@ -267,6 +268,7 @@ async def condition_node(
 
     return {
         "current_node": node_id,
+        "completed_nodes": [node_id],
         "conditional_result": matched,
         "execution_log": [{
             "node_id": node_id,
@@ -374,6 +376,7 @@ async def parallel_node(
     # 收集结果
     outputs = []
     all_logs = []
+    all_messages = []
     for i, result in enumerate(results):
         if isinstance(result, Exception):
             outputs.append(f"ERROR: {str(result)[:200]}")
@@ -391,6 +394,7 @@ async def parallel_node(
                 node_out = result.get("node_outputs", {})
                 outputs.append(node_out.get(f"{node_id}[{i}]", result.get("error", "")))
             all_logs.extend(result.get("execution_log", []))
+            all_messages.extend(result.get("messages", []))
 
     if event_buffer:
         event_buffer.push("parallel_done", {
@@ -408,8 +412,10 @@ async def parallel_node(
 
     return {
         "current_node": node_id,
+        "completed_nodes": [node_id],
         "variables": variables,
         "node_outputs": node_outputs,
+        "messages": all_messages,
         "execution_log": all_logs,
     }
 
@@ -455,7 +461,7 @@ async def human_node(
 
     # 如果已经有 human_input（从恢复执行传入），使用它
     human_input = state.get("human_input", "")
-    if human_input:
+    if human_input and human_input.strip():
         variables = dict(state.get("variables", {}))
         variables[output_var] = human_input
         if event_buffer:
@@ -465,6 +471,7 @@ async def human_node(
             })
         return {
             "current_node": node_id,
+            "completed_nodes": [node_id],
             "variables": variables,
             "waiting_for_human": False,
             "human_input": "",
