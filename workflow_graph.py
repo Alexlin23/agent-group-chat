@@ -15,7 +15,7 @@ from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from workflow_nodes import agent_node, condition_node
+from workflow_nodes import agent_node, condition_node, parallel_node, human_node
 from workflow_state import WorkflowState, WorkflowContext
 
 
@@ -50,13 +50,19 @@ class GraphState(TypedDict, total=False):
 def _make_node_func(node_def: dict):
     """Create a LangGraph node function from a node definition.
 
+    Supports node types:
+    - "agent" (default): standard agent call
+    - "parallel": fan-out/fan-in over a list
+    - "human": pause for human input
+
     Returns an async function that receives GraphState and returns partial update.
     """
     node_id = node_def["id"]
-    agent_id = node_def["agent_id"]
+    agent_id = node_def.get("agent_id", "")
     prompt = node_def.get("prompt", "")
     output_var = node_def.get("output_var", "")
     node_name = node_def.get("name", node_id)
+    node_type = node_def.get("type", "agent")
 
     async def _node_func(state: GraphState) -> dict:
         ctx = WorkflowContext(
@@ -65,15 +71,27 @@ def _make_node_func(node_def: dict):
             hermes_url=state.get("hermes_url", ""),
             hermes_key=state.get("hermes_key", ""),
         )
-        return await agent_node(
-            state=state,
-            ctx=ctx,
-            node_id=node_id,
-            agent_id=agent_id,
-            prompt_template=prompt,
-            output_var=output_var,
-            node_name=node_name,
-        )
+
+        if node_type == "parallel":
+            return await parallel_node(
+                state=state, ctx=ctx, node_id=node_id,
+                agent_id=agent_id, prompt_template=prompt,
+                items_var=node_def.get("items_var", "items"),
+                item_var=node_def.get("item_var", "item"),
+                output_var=output_var, node_name=node_name,
+            )
+        elif node_type == "human":
+            return await human_node(
+                state=state, ctx=ctx, node_id=node_id,
+                prompt=prompt, output_var=output_var,
+                node_name=node_name,
+            )
+        else:
+            return await agent_node(
+                state=state, ctx=ctx, node_id=node_id,
+                agent_id=agent_id, prompt_template=prompt,
+                output_var=output_var, node_name=node_name,
+            )
 
     _node_func.__name__ = f"node_{node_id}"
     return _node_func

@@ -7,7 +7,9 @@ Supports:
 - Sequential execution
 - Conditional branching
 - Cycles/loops
-- Future: parallel, human-in-the-loop, checkpoints
+- Parallel execution (fan-out/fan-in)
+- Human-in-the-loop (pause/resume)
+- Checkpointing (MemorySaver)
 """
 
 import uuid
@@ -19,6 +21,32 @@ from workflow_graph import build_graph_from_definition
 from workflow_state import WorkflowState, WorkflowContext, create_initial_state
 
 
+# ── Checkpoint 存储 ──
+# 运行中的检查点存在内存里，key = run_id
+_checkpoints: dict[str, dict] = {}
+
+
+def save_checkpoint(run_id: str, state: dict):
+    """Save a checkpoint for a run (in-memory)."""
+    _checkpoints[run_id] = {
+        "state": state,
+        "saved_at": datetime.now().isoformat(),
+    }
+
+
+def load_checkpoint(run_id: str) -> Optional[dict]:
+    """Load a checkpoint for a run."""
+    cp = _checkpoints.get(run_id)
+    return cp["state"] if cp else None
+
+
+def clear_checkpoint(run_id: str):
+    """Clear a checkpoint after run completes."""
+    _checkpoints.pop(run_id, None)
+
+
+# ── 执行入口 ──
+
 async def execute_workflow(
     workflow_def: dict,
     input_text: str,
@@ -28,7 +56,7 @@ async def execute_workflow(
     event_buffer: Optional[EventBuffer] = None,
     run_id: Optional[str] = None,
 ) -> dict:
-    """Execute a workflow definition.
+    """Execute a workflow definition from scratch.
 
     Args:
         workflow_def: The workflow definition (nodes, edges, etc.).
@@ -41,11 +69,12 @@ async def execute_workflow(
 
     Returns:
         Final state dict with variables, node_outputs, execution_log, etc.
+        If the workflow pauses for human input, status will be "paused"
+        and a checkpoint is saved.
     """
     wf_id = workflow_def.get("id", "")
     run_id = run_id or uuid.uuid4().hex[:8]
 
-    # 推送工作流开始事件
     if event_buffer:
         event_buffer.push("workflow_start", {
             "workflow_id": wf_id,
@@ -59,15 +88,10 @@ async def execute_workflow(
         compiled_graph = build_graph_from_definition(workflow_def)
     except Exception as e:
         if event_buffer:
-            event_buffer.push("workflow_error", {
-                "error": f"Failed to build graph: {str(e)[:200]}",
-            })
+            event_buffer.push("workflow_error", {"error": f"Failed to build graph: {str(e)[:200]}"})
             event_buffer.push("done", {})
             event_buffer.close()
-        return {
-            "status": "failed",
-            "error": f"Graph build failed: {str(e)[:200]}",
-        }
+        return {"status": "failed", "error": f"Graph build failed: {str(e)[:200]}"}
 
     # 创建初始状态
     ctx = WorkflowContext(
@@ -83,7 +107,6 @@ async def execute_workflow(
         ctx=ctx,
     )
 
-    # 扩展状态以包含图需要的运行时字段
     graph_state = {
         **state,
         "event_buffer": event_buffer,
@@ -92,7 +115,74 @@ async def execute_workflow(
         "hermes_key": hermes_key,
     }
 
-    # 执行
+    return await _run_graph(compiled_graph, graph_state, wf_id, run_id, event_buffer)
+
+
+async def resume_workflow(
+    workflow_def: dict,
+    run_id: str,
+    human_input: str,
+    agents: dict[str, dict],
+    hermes_url: str,
+    hermes_key: str,
+    event_buffer: Optional[EventBuffer] = None,
+) -> dict:
+    """Resume a paused workflow with human input.
+
+    Args:
+        workflow_def: The workflow definition.
+        run_id: The run ID of the paused workflow.
+        human_input: The human's response to the prompt.
+        agents: Agent definitions.
+        hermes_url: Hermes API URL.
+        hermes_key: Hermes API key.
+        event_buffer: Optional SSE event buffer.
+
+    Returns:
+        Final state dict, or paused state if more human input needed.
+    """
+    # 加载检查点
+    saved_state = load_checkpoint(run_id)
+    if not saved_state:
+        return {"status": "failed", "error": f"No checkpoint found for run '{run_id}'"}
+
+    # 注入人类输入
+    saved_state["human_input"] = human_input
+    saved_state["waiting_for_human"] = False
+    saved_state["status"] = "running"
+
+    # 重建图
+    try:
+        compiled_graph = build_graph_from_definition(workflow_def)
+    except Exception as e:
+        return {"status": "failed", "error": f"Graph build failed: {str(e)[:200]}"}
+
+    # 恢复运行时上下文
+    saved_state["event_buffer"] = event_buffer
+    saved_state["agents_ref"] = agents
+    saved_state["hermes_url"] = hermes_url
+    saved_state["hermes_key"] = hermes_key
+
+    wf_id = workflow_def.get("id", "")
+
+    if event_buffer:
+        event_buffer.push("workflow_resumed", {
+            "workflow_id": wf_id,
+            "run_id": run_id,
+            "human_input": human_input[:200],
+        })
+
+    return await _run_graph(compiled_graph, saved_state, wf_id, run_id, event_buffer)
+
+
+async def _run_graph(
+    compiled_graph: Any,
+    graph_state: dict,
+    wf_id: str,
+    run_id: str,
+    event_buffer: Optional[EventBuffer],
+) -> dict:
+    """Internal: run the compiled graph and handle checkpointing."""
     try:
         result = await compiled_graph.ainvoke(graph_state)
     except Exception as e:
@@ -101,6 +191,7 @@ async def execute_workflow(
             event_buffer.push("workflow_error", {"error": error_msg})
             event_buffer.push("done", {})
             event_buffer.close()
+        clear_checkpoint(run_id)
         return {
             "status": "failed",
             "error": error_msg,
@@ -109,7 +200,34 @@ async def execute_workflow(
             "execution_log": graph_state.get("execution_log", []),
         }
 
-    # 推送完成事件
+    # 检查是否需要暂停等待人类输入
+    if result.get("waiting_for_human"):
+        # 保存检查点
+        # 移除不可序列化的字段再保存
+        cp_state = {k: v for k, v in result.items()
+                    if k not in ("event_buffer", "agents_ref", "hermes_url", "hermes_key")}
+        save_checkpoint(run_id, cp_state)
+
+        if event_buffer:
+            event_buffer.push("workflow_paused", {
+                "workflow_id": wf_id,
+                "run_id": run_id,
+                "human_prompt": result.get("human_prompt", ""),
+            })
+            # 注意：不 push done，不 close，因为流程还没结束
+
+        return {
+            "status": "paused",
+            "run_id": run_id,
+            "human_prompt": result.get("human_prompt", ""),
+            "variables": result.get("variables", {}),
+            "node_outputs": result.get("node_outputs", {}),
+            "execution_log": result.get("execution_log", []),
+        }
+
+    # 正常完成
+    clear_checkpoint(run_id)
+
     if event_buffer:
         event_buffer.push("workflow_done", {
             "workflow_id": wf_id,

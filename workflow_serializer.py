@@ -72,10 +72,19 @@ def validate_workflow(data: dict, agents: Optional[dict] = None) -> list[str]:
             if node["id"] in node_ids:
                 errors.append(f"Node {i}: duplicate id '{node['id']}'")
             node_ids.add(node["id"])
-        if "agent_id" not in node:
-            errors.append(f"Node '{node.get('id', i)}': missing 'agent_id'")
-        elif agents and node["agent_id"] not in agents:
-            errors.append(f"Node '{node.get('id', i)}': agent '{node['agent_id']}' not found")
+        # human 类型不需要 agent_id
+        node_type = node.get("type", "agent")
+        if node_type != "human":
+            if "agent_id" not in node:
+                errors.append(f"Node '{node.get('id', i)}': missing 'agent_id'")
+            elif agents and node["agent_id"] not in agents:
+                errors.append(f"Node '{node.get('id', i)}': agent '{node['agent_id']}' not found")
+        # parallel 类型需要 items_var 和 item_var
+        if node_type == "parallel":
+            if "items_var" not in node:
+                errors.append(f"Node '{node.get('id', i)}': parallel type requires 'items_var'")
+            if "item_var" not in node:
+                errors.append(f"Node '{node.get('id', i)}': parallel type requires 'item_var'")
 
     # 边验证
     edges = data.get("edges", [])

@@ -6,10 +6,12 @@ a partial WorkflowState update. LangGraph merges the update into state.
 Node types:
 - agent_node: Call an agent via Hermes API, get response
 - condition_node: Use LLM to decide which branch to take
+- parallel_node: Fan-out multiple agent calls, fan-in results
 - human_node: Pause for human input
-- merge_node: Combine outputs from parallel branches (future)
 """
 
+import asyncio
+import json
 import re
 from datetime import datetime
 from typing import Any
@@ -270,6 +272,218 @@ async def condition_node(
             "node_id": node_id,
             "status": "condition_resolved",
             "chosen_path": matched,
+            "timestamp": datetime.now().isoformat(),
+        }],
+    }
+
+
+# ── 并行节点 ──
+
+async def parallel_node(
+    state: WorkflowState,
+    ctx: WorkflowContext,
+    node_id: str,
+    agent_id: str,
+    prompt_template: str,
+    items_var: str,
+    item_var: str,
+    output_var: str,
+    node_name: str = "",
+) -> dict:
+    """Execute an agent node in parallel for each item in a list.
+
+    Fan-out: run the same agent+prompt for each item in items_var.
+    Fan-in: collect all results into output_var as a JSON list.
+
+    Args:
+        state: Current workflow state.
+        ctx: Runtime context.
+        node_id: The node's ID.
+        agent_id: Which agent to call.
+        prompt_template: Prompt template. Can use {{item_var}} for each item.
+        items_var: Variable name containing a list (JSON array or newline-separated).
+        item_var: Variable name for the current item in the template.
+        output_var: Variable name to store the merged results.
+        node_name: Display name.
+
+    Returns:
+        Partial WorkflowState update with merged results.
+    """
+    event_buffer = ctx.get("event_buffer")
+    display_name = node_name or node_id
+
+    # 获取要并行处理的 items
+    raw_items = state.get("variables", {}).get(items_var, "")
+    if isinstance(raw_items, list):
+        items = raw_items
+    elif isinstance(raw_items, str):
+        # 尝试 JSON 解析，失败则按换行分割
+        try:
+            items = json.loads(raw_items)
+            if not isinstance(items, list):
+                items = [raw_items]
+        except (json.JSONDecodeError, ValueError):
+            items = [line.strip() for line in raw_items.split("\n") if line.strip()]
+    else:
+        items = [raw_items]
+
+    if not items:
+        return {
+            "current_node": node_id,
+            "variables": {**state.get("variables", {}), output_var: "[]"},
+            "execution_log": [{
+                "node_id": node_id,
+                "status": "skipped",
+                "reason": "empty items list",
+                "timestamp": datetime.now().isoformat(),
+            }],
+        }
+
+    if event_buffer:
+        event_buffer.push("parallel_start", {
+            "node_id": node_id,
+            "node_name": display_name,
+            "item_count": len(items),
+        })
+
+    # 为每个 item 构建子状态并并行执行
+    async def _run_one(idx: int, item: Any) -> dict:
+        # 把 item 注入到变量中
+        item_vars = dict(state.get("variables", {}))
+        item_vars[item_var] = str(item)
+
+        sub_state = {**state, "variables": item_vars}
+        sub_node_id = f"{node_id}[{idx}]"
+
+        return await agent_node(
+            state=sub_state,
+            ctx=ctx,
+            node_id=sub_node_id,
+            agent_id=agent_id,
+            prompt_template=prompt_template,
+            output_var="",  # 不写入子状态的变量
+            node_name=f"{display_name}[{idx}]",
+        )
+
+    # 并行执行
+    results = await asyncio.gather(
+        *[_run_one(i, item) for i, item in enumerate(items)],
+        return_exceptions=True,
+    )
+
+    # 收集结果
+    outputs = []
+    all_logs = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            outputs.append(f"ERROR: {str(result)[:200]}")
+            all_logs.append({
+                "node_id": f"{node_id}[{i}]",
+                "status": "failed",
+                "error": str(result)[:200],
+                "timestamp": datetime.now().isoformat(),
+            })
+        elif isinstance(result, dict):
+            if result.get("status") == "failed":
+                outputs.append(f"ERROR: {result.get('error', 'unknown')}")
+            else:
+                # 从 node_outputs 中取结果
+                node_out = result.get("node_outputs", {})
+                outputs.append(node_out.get(f"{node_id}[{i}]", result.get("error", "")))
+            all_logs.extend(result.get("execution_log", []))
+
+    if event_buffer:
+        event_buffer.push("parallel_done", {
+            "node_id": node_id,
+            "node_name": display_name,
+            "completed": len([o for o in outputs if not str(o).startswith("ERROR:")]),
+            "failed": len([o for o in outputs if str(o).startswith("ERROR:")]),
+        })
+
+    # 合并结果到变量
+    variables = dict(state.get("variables", {}))
+    variables[output_var] = json.dumps(outputs, ensure_ascii=False)
+    node_outputs = dict(state.get("node_outputs", {}))
+    node_outputs[node_id] = outputs
+
+    return {
+        "current_node": node_id,
+        "variables": variables,
+        "node_outputs": node_outputs,
+        "execution_log": all_logs,
+    }
+
+
+# ── 人类介入节点 ──
+
+async def human_node(
+    state: WorkflowState,
+    ctx: WorkflowContext,
+    node_id: str,
+    prompt: str,
+    output_var: str = "human_response",
+    node_name: str = "",
+) -> dict:
+    """Pause workflow and wait for human input.
+
+    In the current implementation, this pushes an event and sets
+    waiting_for_human=True. The engine should check this field and
+    pause execution until human_input is provided.
+
+    Args:
+        state: Current workflow state.
+        ctx: Runtime context.
+        node_id: The node's ID.
+        prompt: What to ask the human.
+        output_var: Variable name to store the human's response.
+        node_name: Display name.
+
+    Returns:
+        Partial WorkflowState update with waiting_for_human=True.
+    """
+    event_buffer = ctx.get("event_buffer")
+    display_name = node_name or node_id
+
+    rendered = render_template(prompt, state.get("variables", {}))
+
+    if event_buffer:
+        event_buffer.push("human_input_required", {
+            "node_id": node_id,
+            "node_name": display_name,
+            "prompt": rendered,
+        })
+
+    # 如果已经有 human_input（从恢复执行传入），使用它
+    human_input = state.get("human_input", "")
+    if human_input:
+        variables = dict(state.get("variables", {}))
+        variables[output_var] = human_input
+        if event_buffer:
+            event_buffer.push("human_input_received", {
+                "node_id": node_id,
+                "input": human_input[:200],
+            })
+        return {
+            "current_node": node_id,
+            "variables": variables,
+            "waiting_for_human": False,
+            "human_input": "",
+            "execution_log": [{
+                "node_id": node_id,
+                "status": "human_input_received",
+                "timestamp": datetime.now().isoformat(),
+            }],
+        }
+
+    # 没有输入，暂停
+    return {
+        "current_node": node_id,
+        "status": "paused",
+        "waiting_for_human": True,
+        "human_prompt": rendered,
+        "execution_log": [{
+            "node_id": node_id,
+            "status": "waiting_for_human",
             "timestamp": datetime.now().isoformat(),
         }],
     }
