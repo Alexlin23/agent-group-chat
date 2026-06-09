@@ -31,7 +31,12 @@ async def execute_flow(
     hermes_key: str,
     event_buffer=None,
 ) -> dict:
-    """Backward-compatible wrapper for old TaskFlowManager."""
+    """Backward-compatible wrapper for old TaskFlowManager.
+
+    Returns variables dict on success, raises on failure.
+    Note: If the workflow pauses (human-in-the-loop), this returns
+    the partial variables — the caller won't know about the pause.
+    """
     result = await execute_workflow(
         workflow_def=flow,
         input_text=input_text,
@@ -40,6 +45,8 @@ async def execute_flow(
         hermes_key=hermes_key,
         event_buffer=event_buffer,
     )
+    if result.get("status") == "failed":
+        raise RuntimeError(result.get("error", "Workflow execution failed"))
     return result.get("variables", {})
 
 
