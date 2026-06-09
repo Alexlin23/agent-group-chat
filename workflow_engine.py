@@ -1,176 +1,132 @@
-"""Workflow engine for Task Flow execution.
+"""Workflow engine — execute compiled LangGraph graphs.
 
-Replaces the old graph.py. Uses shared hermes_client and text_utils.
-Executes task flows as strict linear pipelines with variable passing.
+This is the main entry point for running workflows.
+It takes a workflow definition, builds the graph, and executes it.
+
+Supports:
+- Sequential execution
+- Conditional branching
+- Cycles/loops
+- Future: parallel, human-in-the-loop, checkpoints
 """
 
-import re
+import uuid
 from datetime import datetime
-from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from event_buffer import EventBuffer
-from hermes_client import stream_hermes
-from text_utils import build_context_text, strip_agent_prefix
-
-_SKILL_CACHE = None
+from workflow_graph import build_graph_from_definition
+from workflow_state import WorkflowState, WorkflowContext, create_initial_state
 
 
-def _load_project_skill() -> str:
-    """Load the project skill file (cached)."""
-    global _SKILL_CACHE
-    if _SKILL_CACHE is not None:
-        return _SKILL_CACHE
-    skill_path = Path(__file__).parent / ".hermes" / "skills" / "agent-group-chat.md"
-    if skill_path.exists():
-        _SKILL_CACHE = skill_path.read_text(encoding="utf-8") + "\n\n"
-    else:
-        _SKILL_CACHE = ""
-    return _SKILL_CACHE
-
-
-def _render_template(template: str, variables: dict[str, str]) -> str:
-    """Render a {{var}} template with variables."""
-    def replacer(match):
-        var_name = match.group(1).strip()
-        return variables.get(var_name, match.group(0))
-    return re.sub(r'\{\{(.+?)\}\}', replacer, template)
-
-
-async def execute_step(
-    step: dict,
-    agent: dict,
-    variables: dict[str, str],
-    messages: list[dict],
-    hermes_url: str,
-    hermes_key: str,
-    event_buffer: EventBuffer,
-) -> str:
-    """Execute a single task flow step. Returns the agent's response text."""
-    step_id = step["id"]
-    step_name = step.get("name", step_id)
-
-    event_buffer.push("step_start", {
-        "step_id": step_id,
-        "step_name": step_name,
-        "agent_id": agent["id"],
-        "agent_name": agent["name"],
-    })
-
-    # Render the prompt template with current variables
-    prompt_template = step.get("prompt_template", "")
-    rendered_prompt = _render_template(prompt_template, variables)
-
-    # Build full agents dict for context builder
-    agents_dict = {agent["id"]: agent}
-    context_text = build_context_text(messages, agents_dict)
-
-    system_prompt = (
-        f"{agent.get('system_prompt', '')}\n\n"
-        f"{_load_project_skill()}"
-        f"---\n任务步骤: {step_name}\n---\n\n"
-        f"{rendered_prompt}"
-    )
-
-    # Stream response
-    full_response = ""
-    try:
-        async for chunk in stream_hermes(hermes_url, hermes_key, system_prompt):
-            full_response += chunk
-            event_buffer.push("step_text", {
-                "step_id": step_id,
-                "agent_id": agent["id"],
-                "text": chunk,
-            })
-    except RuntimeError as e:
-        event_buffer.push("step_error", {
-            "step_id": step_id,
-            "agent_id": agent["id"],
-            "error": str(e),
-        })
-        raise
-
-    # Clean and emit completion
-    clean_response = strip_agent_prefix(full_response, agent["name"])
-
-    event_buffer.push("step_done", {
-        "step_id": step_id,
-        "step_name": step_name,
-        "agent_id": agent["id"],
-        "agent_name": agent["name"],
-        "output_var": step.get("output_var", ""),
-        "full_response": clean_response,
-    })
-
-    return clean_response
-
-
-async def execute_flow(
-    flow: dict,
+async def execute_workflow(
+    workflow_def: dict,
     input_text: str,
     agents: dict[str, dict],
     hermes_url: str,
     hermes_key: str,
-    event_buffer: EventBuffer,
-) -> dict[str, str]:
-    """Execute a complete task flow. Returns final variables dict."""
-    steps = flow.get("steps", [])
-    variables: dict[str, str] = {"input": input_text}
-    messages: list[dict] = [{"role": "user", "content": input_text}]
+    event_buffer: Optional[EventBuffer] = None,
+    run_id: Optional[str] = None,
+) -> dict:
+    """Execute a workflow definition.
 
-    event_buffer.push("flow_start", {
-        "flow_id": flow["id"],
-        "flow_name": flow.get("name", ""),
-        "total_steps": len(steps),
-    })
+    Args:
+        workflow_def: The workflow definition (nodes, edges, etc.).
+        input_text: User's input text.
+        agents: Agent definitions dict.
+        hermes_url: Hermes API URL.
+        hermes_key: Hermes API key.
+        event_buffer: Optional SSE event buffer.
+        run_id: Optional run ID (auto-generated if not provided).
 
-    for i, step in enumerate(steps):
-        agent_id = step["agent_id"]
-        agent = agents.get(agent_id)
-        if not agent:
-            event_buffer.push("step_error", {
-                "step_id": step["id"],
-                "error": f"Agent '{agent_id}' not found",
+    Returns:
+        Final state dict with variables, node_outputs, execution_log, etc.
+    """
+    wf_id = workflow_def.get("id", "")
+    run_id = run_id or uuid.uuid4().hex[:8]
+
+    # 推送工作流开始事件
+    if event_buffer:
+        event_buffer.push("workflow_start", {
+            "workflow_id": wf_id,
+            "run_id": run_id,
+            "workflow_name": workflow_def.get("name", ""),
+            "total_nodes": len(workflow_def.get("nodes", [])),
+        })
+
+    # 构建图
+    try:
+        compiled_graph = build_graph_from_definition(workflow_def)
+    except Exception as e:
+        if event_buffer:
+            event_buffer.push("workflow_error", {
+                "error": f"Failed to build graph: {str(e)[:200]}",
             })
-            event_buffer.push("flow_error", {
-                "error": f"Step {i+1} failed: agent '{agent_id}' not found",
-            })
+            event_buffer.push("done", {})
             event_buffer.close()
-            return variables
+        return {
+            "status": "failed",
+            "error": f"Graph build failed: {str(e)[:200]}",
+        }
 
-        try:
-            response = await execute_step(
-                step=step,
-                agent=agent,
-                variables=variables,
-                messages=messages,
-                hermes_url=hermes_url,
-                hermes_key=hermes_key,
-                event_buffer=event_buffer,
-            )
+    # 创建初始状态
+    ctx = WorkflowContext(
+        event_buffer=event_buffer,
+        agents_ref=agents,
+        hermes_url=hermes_url,
+        hermes_key=hermes_key,
+    )
+    state, _ = create_initial_state(
+        workflow_id=wf_id,
+        run_id=run_id,
+        input_text=input_text,
+        ctx=ctx,
+    )
 
-            # Store output in variables
-            output_var = step.get("output_var", "")
-            if output_var:
-                variables[output_var] = response
+    # 扩展状态以包含图需要的运行时字段
+    graph_state = {
+        **state,
+        "event_buffer": event_buffer,
+        "agents_ref": agents,
+        "hermes_url": hermes_url,
+        "hermes_key": hermes_key,
+    }
 
-            # Add to message history for context
-            messages.append({
-                "role": "assistant",
-                "content": response,
-                "agent_id": agent_id,
-            })
-
-        except Exception as e:
-            event_buffer.push("flow_error", {
-                "error": f"Step {i+1} ({step.get('name', '')}) failed: {str(e)[:200]}",
-            })
+    # 执行
+    try:
+        result = await compiled_graph.ainvoke(graph_state)
+    except Exception as e:
+        error_msg = f"Workflow execution failed: {str(e)[:300]}"
+        if event_buffer:
+            event_buffer.push("workflow_error", {"error": error_msg})
+            event_buffer.push("done", {})
             event_buffer.close()
-            return variables
+        return {
+            "status": "failed",
+            "error": error_msg,
+            "variables": graph_state.get("variables", {}),
+            "node_outputs": graph_state.get("node_outputs", {}),
+            "execution_log": graph_state.get("execution_log", []),
+        }
 
-    event_buffer.push("flow_done", {
-        "flow_id": flow["id"],
-        "variables": {k: v[:200] + "..." if len(v) > 200 else v for k, v in variables.items()},
-    })
-    event_buffer.close()
-    return variables
+    # 推送完成事件
+    if event_buffer:
+        event_buffer.push("workflow_done", {
+            "workflow_id": wf_id,
+            "run_id": run_id,
+            "variables": {
+                k: (v[:200] + "..." if isinstance(v, str) and len(v) > 200 else v)
+                for k, v in result.get("variables", {}).items()
+            },
+        })
+        event_buffer.push("done", {})
+        event_buffer.close()
+
+    return {
+        "status": result.get("status", "completed"),
+        "error": result.get("error", ""),
+        "variables": result.get("variables", {}),
+        "node_outputs": result.get("node_outputs", {}),
+        "execution_log": result.get("execution_log", []),
+        "messages": result.get("messages", []),
+    }
