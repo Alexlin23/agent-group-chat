@@ -29,7 +29,7 @@ class GraphState(TypedDict, total=False):
     run_id: str
     current_node: str
     conditional_result: str
-    completed_nodes: list[str]  # 已完成节点，resume 时跳过
+    completed_nodes: Annotated[list[str], operator.add]  # 已完成节点，resume 时跳过
     variables: dict[str, Any]
     node_outputs: dict[str, Any]
     messages: Annotated[list[dict], operator.add]
