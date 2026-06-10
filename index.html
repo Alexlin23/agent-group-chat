@@ -247,7 +247,7 @@ button{font-family:inherit;cursor:pointer}
 .flow-item .flow-delete{opacity:0;background:none;border:none;color:var(--danger);font-size:14px;padding:2px 4px;border-radius:3px}
 .flow-item:hover .flow-delete{opacity:0.6}
 .flow-item .flow-delete:hover{opacity:1;background:rgba(248,81,73,0.1)}
-.flow-view{display:none;flex:1;flex-direction:column;overflow:hidden}
+.flow-view{display:none;flex:1;flex-direction:column;overflow:visible}
 .flow-view.active{display:flex}
 .chat-view{display:flex;flex:1;flex-direction:column;overflow:hidden}
 .chat-view.hidden{display:none}
@@ -1843,13 +1843,21 @@ function renderFlowGraph(flow) {
   // Nodes
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
-    const agent = agentMap[s.agent_id] || {};
-    const color = agent.color || '#58a6ff';
-    const avatar = agent.avatar || '🤖';
-    const agentName = agent.name || s.agent_id;
+    const isCode = s.type === 'code';
+    let color, avatar, agentName;
+    if (isCode) {
+      color = '#f59e0b';  // amber for code
+      avatar = '⚡';
+      agentName = 'Code';
+    } else {
+      const agent = agentMap[s.agent_id] || {};
+      color = agent.color || '#58a6ff';
+      avatar = agent.avatar || '🤖';
+      agentName = agent.name || s.agent_id;
+    }
     const pos = positions[i];
     const borderColor = color + '60';
-    const prompt = (s.prompt || '').substring(0, 200);
+    const prompt = (s.prompt || s.code || '').substring(0, 200);
 
     html += '<div class="flow-node" style="left:' + pos.x + 'px;top:' + pos.y + 'px;width:' + NODE_W + 'px;border-color:' + borderColor + ';box-shadow:0 0 24px ' + color + '12" data-step-id="' + s.id + '">';
     html += '<div class="flow-node-num">' + (i + 1) + '</div>';
@@ -1865,8 +1873,13 @@ function renderFlowGraph(flow) {
 
     // Tooltip
     html += '<div class="flow-node-tooltip">';
-    html += '<div class="tt-label">Prompt 模板</div>';
-    html += '<div class="tt-text">' + esc(prompt || '无') + '</div>';
+    if (isCode) {
+      html += '<div class="tt-label">Python 代码</div>';
+      html += '<div class="tt-text">' + esc(prompt || '无') + '</div>';
+    } else {
+      html += '<div class="tt-label">Prompt 模板</div>';
+      html += '<div class="tt-text">' + esc(prompt || '无') + '</div>';
+    }
     if (s.input_vars && s.input_vars.length) {
       html += '<div class="tt-vars"><div class="tt-label">输入变量</div>';
       for (const v of s.input_vars) {
@@ -1892,8 +1905,8 @@ function showRunModal() {
   overlay.innerHTML =
     '<div class="modal">' +
       '<h3>' + esc(flow.name) + '</h3>' +
-      '<p>输入要处理的内容，将按流程严格顺序执行。</p>' +
-      '<textarea id="flow-run-input" placeholder="输入任务内容..."></textarea>' +
+      '<p>输入要处理的内容（可留空直接执行）。</p>' +
+      '<textarea id="flow-run-input" placeholder="输入任务内容，或留空直接执行..."></textarea>' +
       '<div class="modal-actions">' +
         '<button class="btn" onclick="closeRunModal()">取消</button>' +
         '<button class="btn btn-primary" id="flow-run-btn" onclick="executeFlow(\'' + flow.id + '\')">▶ 开始执行</button>' +
@@ -1912,8 +1925,7 @@ function closeRunModal() {
 }
 
 async function executeFlow(flowId) {
-  const inputText = document.getElementById('flow-run-input').value.trim();
-  if (!inputText) return;
+  const inputText = document.getElementById('flow-run-input').value.trim() || '(auto)';
   const btn = document.getElementById('flow-run-btn');
   btn.disabled = true;
   btn.textContent = '执行中...';
@@ -1949,10 +1961,18 @@ async function executeFlow(flowId) {
     if (flow.nodes) {
       for (let i = 0; i < flow.nodes.length; i++) {
         const s = flow.nodes[i];
-        const agent = state.agents.find(a => a.id === s.agent_id);
-        const agentColor = agent ? agent.color : '#888';
-        const agentAvatar = agent ? agent.avatar : '🤖';
-        const agentName = agent ? agent.name : s.agent_id;
+        const isCode = s.type === 'code';
+        let agentColor, agentAvatar, agentName;
+        if (isCode) {
+          agentColor = '#f59e0b';  // amber for code
+          agentAvatar = '⚡';
+          agentName = 'Code';
+        } else {
+          const agent = state.agents.find(a => a.id === s.agent_id);
+          agentColor = agent ? agent.color : '#888';
+          agentAvatar = agent ? agent.avatar : '🤖';
+          agentName = agent ? agent.name : s.agent_id;
+        }
         outputHtml +=
           '<div class="exec-step" id="exec-step-' + s.id + '">' +
             '<div class="step-header">' +
