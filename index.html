@@ -805,7 +805,6 @@ async function selectConversation(id) {
 }
 
 async function deleteConversation(id) {
-  if (!confirm('确定删除这个对话？')) return;
   if (state.currentConv === id) disconnectStream();
   await api.del(`/api/conversations/${id}`);
   delete state.convCache[id];
@@ -901,7 +900,6 @@ function updateBatchCount() {
 async function batchDelete() {
   const ids = Array.from(state.batchSelected);
   if (ids.length === 0) return;
-  if (!confirm(`确定删除选中的 ${ids.length} 个对话？`)) return;
   // Delete each conversation via API
   for (const id of ids) {
     try {
