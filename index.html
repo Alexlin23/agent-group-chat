@@ -115,6 +115,8 @@ button{font-family:inherit;cursor:pointer}
 .new-agent-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:6px;margin:4px 8px;border-radius:var(--radius);border:1px dashed var(--border);color:var(--text-dim);font-size:12px;background:none;width:calc(100% - 16px)}
 .new-agent-btn:hover{border-color:var(--accent);color:var(--accent)}
 
+.sidebar-section:nth-child(3),
+.sidebar-section:nth-child(4){flex-shrink:0}
 .sidebar-footer{margin-top:auto;padding:12px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:6px}
 .sidebar-footer .dot{width:6px;height:6px;border-radius:50%;background:var(--success)}
 
@@ -352,7 +354,7 @@ button{font-family:inherit;cursor:pointer}
       <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切换日间/夜间模式">🌙</button>
     </div>
 
-    <div class="sidebar-section" style="flex:1;overflow-y:auto">
+    <div class="sidebar-section" style="flex:1;overflow-y:auto;min-height:0">
       <button class="new-conv-btn" onclick="createConversation()">+ 新建对话</button>
       <div id="conv-list"></div>
     </div>

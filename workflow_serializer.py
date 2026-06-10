@@ -34,6 +34,7 @@ NODE_DEFAULTS = {
     "prompt": "",
     "output_var": "",
     "timeout": 300,
+    "code": "",
 }
 
 
@@ -72,9 +73,9 @@ def validate_workflow(data: dict, agents: Optional[dict] = None) -> list[str]:
             if node["id"] in node_ids:
                 errors.append(f"Node {i}: duplicate id '{node['id']}'")
             node_ids.add(node["id"])
-        # human 类型不需要 agent_id
+        # human 和 code 类型不需要 agent_id
         node_type = node.get("type", "agent")
-        if node_type != "human":
+        if node_type not in ("human", "code"):
             if "agent_id" not in node:
                 errors.append(f"Node '{node.get('id', i)}': missing 'agent_id'")
             elif agents and node["agent_id"] not in agents:
@@ -85,6 +86,10 @@ def validate_workflow(data: dict, agents: Optional[dict] = None) -> list[str]:
                 errors.append(f"Node '{node.get('id', i)}': parallel type requires 'items_var'")
             if "item_var" not in node:
                 errors.append(f"Node '{node.get('id', i)}': parallel type requires 'item_var'")
+        # code 类型需要非空 code 字段
+        if node_type == "code":
+            if "code" not in node or not node.get("code", "").strip():
+                errors.append(f"Node '{node.get('id', i)}': code type requires non-empty 'code' field")
 
     # 边验证
     edges = data.get("edges", [])
