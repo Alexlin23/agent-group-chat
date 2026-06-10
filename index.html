@@ -1709,9 +1709,9 @@ async function generateFlow() {
   try {
     const result = await api.post('/api/workflows/generate', { description: input });
     let stepsHtml = '';
-    if (result.steps) {
-      for (let i = 0; i < result.steps.length; i++) {
-        stepsHtml += renderStepPreview(result.steps[i], i);
+    if (result.nodes) {
+      for (let i = 0; i < result.nodes.length; i++) {
+        stepsHtml += renderStepPreview(result.nodes[i], i);
       }
     }
     resultEl.innerHTML =
@@ -1744,7 +1744,7 @@ function renderStepPreview(step, idx) {
       '<span class="step-agent"><span class="agent-dot" style="background:' + agentColor + '"></span>' + agentAvatar + ' ' + esc(agentName) + '</span>' +
     '</div>' +
     '<div class="step-name">' + esc(step.name || '') + '</div>' +
-    '<div class="step-prompt">' + esc(step.prompt_template || '') + '</div>';
+    '<div class="step-prompt">' + esc(step.prompt || '') + '</div>';
   if (step.output_var) {
     html += '<div class="step-vars"><span>输出 → <span class="var-tag">' + esc(step.output_var) + '</span></span></div>';
   }
@@ -1781,9 +1781,9 @@ function showFlowDetail(flow) {
   const backBtn = document.getElementById('flow-back-btn');
   backBtn.onclick = backToChat;
   // Meta
-  const agents = new Set((flow.steps || []).map(s => s.agent_id));
+  const agents = new Set((flow.nodes || []).map(s => s.agent_id));
   document.getElementById('flow-meta').innerHTML =
-    '<span class="meta-item">⚡ ' + (flow.steps || []).length + ' 步骤</span>' +
+    '<span class="meta-item">⚡ ' + (flow.nodes || []).length + ' 步骤</span>' +
     '<span class="meta-item">👤 ' + agents.size + ' Agent</span>';
   // Actions
   document.getElementById('flow-actions').innerHTML =
@@ -1794,7 +1794,7 @@ function showFlowDetail(flow) {
 
 function renderFlowGraph(flow) {
   const body = document.getElementById('flow-body');
-  const steps = flow.steps || [];
+  const steps = flow.nodes || [];
   if (!steps.length) {
     body.innerHTML = '<div class="empty-state"><p>此流程暂无步骤</p></div>';
     return;
@@ -1849,7 +1849,7 @@ function renderFlowGraph(flow) {
     const agentName = agent.name || s.agent_id;
     const pos = positions[i];
     const borderColor = color + '60';
-    const prompt = (s.prompt_template || '').substring(0, 200);
+    const prompt = (s.prompt || '').substring(0, 200);
 
     html += '<div class="flow-node" style="left:' + pos.x + 'px;top:' + pos.y + 'px;width:' + NODE_W + 'px;border-color:' + borderColor + ';box-shadow:0 0 24px ' + color + '12" data-step-id="' + s.id + '">';
     html += '<div class="flow-node-num">' + (i + 1) + '</div>';
@@ -1933,8 +1933,8 @@ async function executeFlow(flowId) {
     // Build graph with execution indicators
     renderFlowGraph(flow);
     // Add exec status dots to nodes
-    if (flow.steps) {
-      for (const s of flow.steps) {
+    if (flow.nodes) {
+      for (const s of flow.nodes) {
         const node = document.querySelector('.flow-node[data-step-id="' + s.id + '"]');
         if (node) {
           const dot = document.createElement('div');
@@ -1945,10 +1945,10 @@ async function executeFlow(flowId) {
       }
     }
     // Build output panel
-    let outputHtml = '<div style="margin-top:32px;max-width:' + (flow.steps.length * 280 + 80) + 'px;margin-left:auto;margin-right:auto">';
-    if (flow.steps) {
-      for (let i = 0; i < flow.steps.length; i++) {
-        const s = flow.steps[i];
+    let outputHtml = '<div style="margin-top:32px;max-width:' + (flow.nodes.length * 280 + 80) + 'px;margin-left:auto;margin-right:auto">';
+    if (flow.nodes) {
+      for (let i = 0; i < flow.nodes.length; i++) {
+        const s = flow.nodes[i];
         const agent = state.agents.find(a => a.id === s.agent_id);
         const agentColor = agent ? agent.color : '#888';
         const agentAvatar = agent ? agent.avatar : '🤖';
