@@ -46,23 +46,26 @@ description: Agent Group Chat 操作手册 — 群聊规则、Agent 编辑、工
 - 系统会自动把所有其他 Agent 的 description 注入到你的提示词中
 - 所以你不需要在自己的提示词里写其他 Agent 的名字和职能
 
-## 三、Task Flow 工作流
+## 三、Workflow 工作流
 
-Task Flow 是多 Agent 流水线，按步骤顺序执行，前一步的输出可以传给下一步。
+Workflow 是多 Agent 流水线，支持顺序执行、条件分支、并行处理、人类介入和代码执行。
 
 **通过前端：**
-- 侧边栏 Task Flows 区域查看已有工作流
+- 侧边栏 Workflows 区域查看已有工作流
 - 点击查看详情，点 Run 执行
 - 可以用自然语言描述需求，AI 自动生成工作流结构
 
 **通过 API：**
-- 查看所有工作流：GET /api/task-flows
-- 创建工作流：POST /api/task-flows
-- AI 生成：POST /api/task-flows/generate，传入描述
-- 执行：POST /api/task-flows/{id}/run，传入输入内容
+- 查看所有工作流：GET /api/workflows
+- 创建工作流：POST /api/workflows
+- AI 生成：POST /api/workflows/generate，传入描述
+- 执行：POST /api/workflows/{id}/run，传入输入内容
+- 恢复暂停的工作流：POST /api/workflows/{id}/resume，传入 run_id 和 human_input
 
 **工作流定义：**
-- 每个工作流有多个步骤（steps）
-- 每步指定一个 Agent、一个提示词模板、一个输出变量名
-- 模板中用 {{变量名}} 引用前序步骤的输出
-- 用户运行时输入的内容通过 {{input}} 传给第一步
+- 每个工作流有多个节点（nodes）和边（edges）
+- 节点类型：agent（调LLM）、condition（LLM判断分支）、parallel（并行处理）、human（等人确认）、code（执行Python代码）
+- agent 节点用 {{变量名}} 引用前序节点的输出
+- 用户运行时输入的内容通过 {{input}} 传给第一个节点
+- 条件分支通过 conditional_edges 定义，LLM 决定走哪条路
+- 人类介入节点会暂停工作流，等人输入后恢复
