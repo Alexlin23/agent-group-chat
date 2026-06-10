@@ -1633,7 +1633,7 @@ let flowState = {
 // ── Workflow API ────────────────────────────────────────────
 async function loadFlows() {
   try {
-    flowState.flows = await api.get('/api/task-flows');
+    flowState.flows = await api.get('/api/workflows');
     renderFlowList();
   } catch (e) { console.error('loadFlows:', e); }
 }
@@ -1707,7 +1707,7 @@ async function generateFlow() {
   const resultEl = document.getElementById('flow-gen-result');
   resultEl.innerHTML = '<div style="color:var(--text-dim)">Hermes 正在生成流程定义...</div>';
   try {
-    const result = await api.post('/api/task-flows/generate', { description: input });
+    const result = await api.post('/api/workflows/generate', { description: input });
     let stepsHtml = '';
     if (result.steps) {
       for (let i = 0; i < result.steps.length; i++) {
@@ -1756,7 +1756,7 @@ async function saveGeneratedFlow() {
   const result = flowState._generated;
   if (!result) return;
   try {
-    const saved = await api.post('/api/task-flows', result);
+    const saved = await api.post('/api/workflows', result);
     flowState.flows.unshift(saved);
     renderFlowList();
     selectFlow(saved.id);
@@ -1767,7 +1767,7 @@ async function saveGeneratedFlow() {
 
 async function selectFlow(flowId) {
   try {
-    const flow = await api.get('/api/task-flows/' + flowId);
+    const flow = await api.get('/api/workflows/' + flowId);
     flowState.currentFlow = flow;
     renderFlowList();
     showFlowDetail(flow);
@@ -1918,7 +1918,7 @@ async function executeFlow(flowId) {
   btn.disabled = true;
   btn.textContent = '执行中...';
   try {
-    const result = await api.post('/api/task-flows/' + flowId + '/run', { input_text: inputText });
+    const result = await api.post('/api/workflows/' + flowId + '/run', { input_text: inputText });
     closeRunModal();
     const runId = result.run_id;
     const flow = flowState.currentFlow;
@@ -1980,7 +1980,7 @@ function backToFlowGraph() {
 }
 
 function connectFlowStream(runId) {
-  const es = new EventSource('/api/task-flows/runs/' + runId + '/stream?last_id=-1');
+  const es = new EventSource('/api/workflows/runs/' + runId + '/stream?last_id=-1');
   es.addEventListener('step_start', function(e) {
     const d = JSON.parse(e.data);
     const statusEl = document.getElementById('exec-status-' + d.step_id);
@@ -2055,7 +2055,7 @@ function connectFlowStream(runId) {
 async function deleteFlow(flowId) {
   if (!confirm('确定删除此流程？')) return;
   try {
-    await api.del('/api/task-flows/' + flowId);
+    await api.del('/api/workflows/' + flowId);
     flowState.flows = flowState.flows.filter(f => f.id !== flowId);
     if (flowState.currentFlow && flowState.currentFlow.id === flowId) backToChat();
     renderFlowList();
