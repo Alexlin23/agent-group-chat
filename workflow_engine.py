@@ -260,7 +260,10 @@ async def _run_graph(
             "execution_log": result.get("execution_log", []),
         }
 
-    # 正常完成
+    # 正常完成 — 如果状态还是 running，改为 completed
+    final_status = result.get("status", "completed")
+    if final_status == "running":
+        final_status = "completed"
     clear_checkpoint(run_id)
 
     if event_buffer:
@@ -276,7 +279,7 @@ async def _run_graph(
         event_buffer.close()
 
     return {
-        "status": result.get("status", "completed"),
+        "status": final_status,
         "error": result.get("error", ""),
         "variables": result.get("variables", {}),
         "node_outputs": result.get("node_outputs", {}),

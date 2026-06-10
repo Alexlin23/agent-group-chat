@@ -1932,10 +1932,10 @@ function closeRunModal() {
 }
 
 async function executeFlow(flowId) {
-  const inputText = document.getElementById('flow-run-input').value.trim() || '(auto)';
+  const inputEl = document.getElementById('flow-run-input');
+  const inputText = inputEl ? (inputEl.value.trim() || '(auto)') : '(auto)';
   const btn = document.getElementById('flow-run-btn');
-  btn.disabled = true;
-  btn.textContent = '执行中...';
+  if (btn) { btn.disabled = true; btn.textContent = '执行中...'; }
   try {
     const result = await api.post('/api/workflows/' + flowId + '/run', { input_text: inputText });
     closeRunModal();
