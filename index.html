@@ -2072,11 +2072,16 @@ function connectFlowStream(runId) {
     if (actionsEl) actionsEl.innerHTML = '<button class="flow-run-btn" onclick="showRunModal()">▶ 重新执行</button>';
   });
   es.addEventListener('error', function() {
-    es.close();
-    const metaEl = document.getElementById('flow-meta');
-    if (metaEl) metaEl.innerHTML = '<span class="meta-item" style="color:var(--danger)">✕ 连接中断</span>';
-    const actionsEl = document.getElementById('flow-actions');
-    if (actionsEl) actionsEl.innerHTML = '<button class="flow-run-btn" onclick="showRunModal()">▶ 重新执行</button>';
+    // Don't close immediately — EventSource auto-reconnects.
+    // Only show error if the connection is truly closed after a delay.
+    setTimeout(function() {
+      if (es.readyState === EventSource.CLOSED) {
+        const metaEl = document.getElementById('flow-meta');
+        if (metaEl) metaEl.innerHTML = '<span class="meta-item" style="color:var(--danger)">✕ 连接中断</span>';
+        const actionsEl = document.getElementById('flow-actions');
+        if (actionsEl) actionsEl.innerHTML = '<button class="flow-run-btn" onclick="showRunModal()">▶ 重新执行</button>';
+      }
+    }, 5000);
   });
 }
 

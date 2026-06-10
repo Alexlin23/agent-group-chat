@@ -61,8 +61,8 @@ class EventBuffer:
             try:
                 await asyncio.wait_for(waiter.wait(), timeout=30.0)
             except asyncio.TimeoutError:
-                # Heartbeat to keep connection alive
-                yield {"type": "_heartbeat", "id": -1, "ts": time.time()}
+                # Heartbeat as SSE comment to keep connection alive
+                yield {"type": "_hb", "id": -1, "ts": time.time()}
             finally:
                 if waiter in self._waiters:
                     self._waiters.remove(waiter)
@@ -83,6 +83,9 @@ def format_sse(event: dict) -> str:
     """Format an event dict as an SSE string for StreamingResponse."""
     eid = event.get("id", 0)
     etype = event.get("type", "message")
+    # Heartbeat: send as SSE comment (not an event)
+    if etype == "_hb":
+        return ": hb\n\n"
     # Don't send internal events
     if etype.startswith("_"):
         return ""

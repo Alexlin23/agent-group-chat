@@ -1,4 +1,3 @@
-from workflow_events import WORKFLOW_START, WORKFLOW_DONE, WORKFLOW_ERROR, WORKFLOW_PAUSED
 """Workflow engine — execute compiled LangGraph graphs.
 
 This is the main entry point for running workflows.
@@ -13,9 +12,12 @@ Supports:
 - Checkpointing (MemorySaver)
 """
 
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Any, Optional
+
+from workflow_events import WORKFLOW_START, WORKFLOW_DONE, WORKFLOW_ERROR, WORKFLOW_PAUSED
 
 from event_buffer import EventBuffer
 from workflow_graph import build_graph_from_definition
@@ -211,10 +213,25 @@ async def _run_graph(
     wf_id: str,
     run_id: str,
     event_buffer: Optional[EventBuffer],
+    timeout: int = 600,
 ) -> dict:
     """Internal: run the compiled graph and handle checkpointing."""
     try:
-        result = await compiled_graph.ainvoke(graph_state)
+        result = await asyncio.wait_for(compiled_graph.ainvoke(graph_state), timeout=timeout)
+    except asyncio.TimeoutError:
+        error_msg = f"Workflow execution timed out after {timeout}s"
+        if event_buffer:
+            event_buffer.push(WORKFLOW_ERROR, {"error": error_msg})
+            event_buffer.push("done", {})
+            event_buffer.close()
+        clear_checkpoint(run_id)
+        return {
+            "status": "failed",
+            "error": error_msg,
+            "variables": graph_state.get("variables", {}),
+            "node_outputs": graph_state.get("node_outputs", {}),
+            "execution_log": graph_state.get("execution_log", []),
+        }
     except Exception as e:
         error_msg = f"Workflow execution failed: {str(e)[:300]}"
         if event_buffer:

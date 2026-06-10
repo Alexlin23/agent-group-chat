@@ -104,10 +104,11 @@ async def agent_node(
             full_response += chunk
             if event_buffer:
                 event_buffer.push(NODE_TEXT, {"node_id": node_id, "agent_id": agent_id, "text": chunk})
-    except RuntimeError as e:
+    except Exception as e:
+        error_msg = f"Node '{node_id}' failed: {type(e).__name__}: {str(e)[:200]}"
         if event_buffer:
-            event_buffer.push(NODE_ERROR, {"node_id": node_id, "agent_id": agent_id, "error": str(e)})
-        return {"status": "failed", "completed_nodes": [node_id], "error": f"Node '{node_id}' failed: {str(e)[:200]}"}
+            event_buffer.push(NODE_ERROR, {"node_id": node_id, "agent_id": agent_id, "error": error_msg})
+        return {"status": "failed", "completed_nodes": [node_id], "error": error_msg}
 
     clean_response = strip_agent_prefix(full_response, agent["name"])
 
