@@ -1900,6 +1900,12 @@ function renderFlowGraph(flow) {
 function showRunModal() {
   const flow = flowState.currentFlow;
   if (!flow) return;
+  // 如果第一个节点是 code 类型，直接执行不需要输入
+  const firstNode = (flow.nodes || [])[0];
+  if (firstNode && firstNode.type === 'code') {
+    executeFlow(flow.id);
+    return;
+  }
   const overlay = document.createElement('div');
   overlay.className = 'flow-run-modal';
   overlay.id = 'flow-run-modal';
