@@ -767,23 +767,16 @@ async function selectConversation(id) {
   for (const es of state.activeEventSources) es.close();
   state.activeEventSources = [];
 
-  // 4. Switch conversation
+  // 4. Switch conversation — always fetch fresh from server
   state.currentConv = id;
-  // Load from cache or server
-  if (state.convCache[id]) {
-    state.convData = state.convCache[id];
-    try {
-      const serverData = await api.get(`/api/conversations/${id}`);
-      const serverMsgCount = serverData.messages.length;
-      const cachedMsgCount = state.convData.messages.length;
-      if (cachedMsgCount <= serverMsgCount) {
-        state.convData = serverData;
-        state.convCache[id] = serverData;
-      }
-    } catch {}
-  } else {
+  try {
     state.convData = await api.get(`/api/conversations/${id}`);
     state.convCache[id] = state.convData;
+  } catch {
+    // Server failed, try cache as fallback
+    if (state.convCache[id]) {
+      state.convData = state.convCache[id];
+    }
   }
 
   renderConvList();
@@ -1238,11 +1231,6 @@ async function _sendToBackend(content) {
   // Show "processing..." placeholder immediately (before stream connects)
   state.isStreaming = true;
   state.streamingConv = targetConvId;
-  const placeholder = document.createElement('div');
-  placeholder.id = 'sending-indicator';
-  placeholder.style.cssText = 'text-align:center;font-size:12px;color:var(--text-dim);padding:8px 0;opacity:0.7';
-  placeholder.textContent = '正在处理...';
-  document.getElementById('messages').appendChild(placeholder);
   scrollToBottom();
 
   // Auto-rename on first message (only when name is still default)
