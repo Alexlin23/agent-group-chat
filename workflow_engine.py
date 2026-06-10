@@ -1,3 +1,4 @@
+from workflow_events import WORKFLOW_START, WORKFLOW_DONE, WORKFLOW_ERROR, WORKFLOW_PAUSED
 """Workflow engine — execute compiled LangGraph graphs.
 
 This is the main entry point for running workflows.
@@ -105,7 +106,7 @@ async def execute_workflow(
     run_id = run_id or uuid.uuid4().hex[:8]
 
     if event_buffer:
-        event_buffer.push("workflow_start", {
+        event_buffer.push(WORKFLOW_START, {
             "workflow_id": wf_id,
             "run_id": run_id,
             "workflow_name": workflow_def.get("name", ""),
@@ -117,7 +118,7 @@ async def execute_workflow(
         compiled_graph = build_graph_from_definition(workflow_def)
     except Exception as e:
         if event_buffer:
-            event_buffer.push("workflow_error", {"error": f"Failed to build graph: {str(e)[:200]}"})
+            event_buffer.push(WORKFLOW_ERROR, {"error": f"Failed to build graph: {str(e)[:200]}"})
             event_buffer.push("done", {})
             event_buffer.close()
         return {"status": "failed", "error": f"Graph build failed: {str(e)[:200]}"}
@@ -217,7 +218,7 @@ async def _run_graph(
     except Exception as e:
         error_msg = f"Workflow execution failed: {str(e)[:300]}"
         if event_buffer:
-            event_buffer.push("workflow_error", {"error": error_msg})
+            event_buffer.push(WORKFLOW_ERROR, {"error": error_msg})
             event_buffer.push("done", {})
             event_buffer.close()
         clear_checkpoint(run_id)
@@ -236,7 +237,7 @@ async def _run_graph(
         cp_state = {k: v for k, v in result.items() if k in serializable_keys}
         save_checkpoint(run_id, cp_state)
         if event_buffer:
-            event_buffer.push("workflow_paused", {"workflow_id": wf_id, "run_id": run_id, "human_prompt": result.get("human_prompt", "")})
+            event_buffer.push(WORKFLOW_PAUSED, {"workflow_id": wf_id, "run_id": run_id, "human_prompt": result.get("human_prompt", "")})
         return {
             "status": "paused", "run_id": run_id,
             "human_prompt": result.get("human_prompt", ""),
@@ -249,7 +250,7 @@ async def _run_graph(
     if result.get("status") == "failed":
         clear_checkpoint(run_id)
         if event_buffer:
-            event_buffer.push("workflow_error", {"error": result.get("error", "")})
+            event_buffer.push(WORKFLOW_ERROR, {"error": result.get("error", "")})
             event_buffer.push("done", {})
             event_buffer.close()
         return {
@@ -267,7 +268,7 @@ async def _run_graph(
     clear_checkpoint(run_id)
 
     if event_buffer:
-        event_buffer.push("workflow_done", {
+        event_buffer.push(WORKFLOW_DONE, {
             "workflow_id": wf_id,
             "run_id": run_id,
             "variables": {

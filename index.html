@@ -451,6 +451,7 @@ button{font-family:inherit;cursor:pointer}
   </div>
 </div>
 
+<script src="workflow_events.js"></script>
 <script>
 // ── State ───────────────────────────────────────────────────
 let state = {
@@ -2008,7 +2009,7 @@ function backToFlowGraph() {
 
 function connectFlowStream(runId) {
   const es = new EventSource('/api/workflows/runs/' + runId + '/stream?last_id=-1');
-  es.addEventListener('node_start', function(e) {
+  es.addEventListener(WF_EVENTS.NODE_START, function(e) {
     const d = JSON.parse(e.data);
     const statusEl = document.getElementById('exec-status-' + d.node_id);
     const stepEl = document.getElementById('exec-step-' + d.node_id);
@@ -2019,7 +2020,7 @@ function connectFlowStream(runId) {
     if (dotEl) dotEl.className = 'flow-node-exec running';
     if (outputEl) { outputEl.style.display = 'block'; outputEl.innerHTML = ''; }
   });
-  es.addEventListener('node_text', function(e) {
+  es.addEventListener(WF_EVENTS.NODE_TEXT, function(e) {
     const d = JSON.parse(e.data);
     const outputEl = document.getElementById('exec-output-' + d.node_id);
     if (outputEl) {
@@ -2032,7 +2033,7 @@ function connectFlowStream(runId) {
       outputEl.scrollTop = outputEl.scrollHeight;
     }
   });
-  es.addEventListener('node_done', function(e) {
+  es.addEventListener(WF_EVENTS.NODE_DONE, function(e) {
     const d = JSON.parse(e.data);
     const statusEl = document.getElementById('exec-status-' + d.node_id);
     const stepEl = document.getElementById('exec-step-' + d.node_id);
@@ -2043,7 +2044,7 @@ function connectFlowStream(runId) {
     if (dotEl) dotEl.className = 'flow-node-exec completed';
     if (outputEl) { const c = outputEl.querySelector('.streaming-cursor'); if (c) c.remove(); }
   });
-  es.addEventListener('node_error', function(e) {
+  es.addEventListener(WF_EVENTS.NODE_ERROR, function(e) {
     const d = JSON.parse(e.data);
     const statusEl = document.getElementById('exec-status-' + d.node_id);
     const stepEl = document.getElementById('exec-step-' + d.node_id);
@@ -2054,7 +2055,7 @@ function connectFlowStream(runId) {
     if (dotEl) dotEl.className = 'flow-node-exec failed';
     if (outputEl) { outputEl.style.display = 'block'; outputEl.innerHTML = '<span style="color:var(--danger)">Error: ' + esc(d.error || 'Unknown') + '</span>'; }
   });
-  es.addEventListener('workflow_done', function() {
+  es.addEventListener(WF_EVENTS.WORKFLOW_DONE, function() {
     es.close();
     const metaEl = document.getElementById('flow-meta');
     if (metaEl) metaEl.innerHTML = '<span class="meta-item" style="color:var(--success)">✓ 执行完成</span>';
@@ -2063,7 +2064,7 @@ function connectFlowStream(runId) {
     const backBtn = document.getElementById('flow-back-btn');
     if (backBtn) backBtn.onclick = backToFlowGraph;
   });
-  es.addEventListener('workflow_error', function() {
+  es.addEventListener(WF_EVENTS.WORKFLOW_ERROR, function() {
     es.close();
     const metaEl = document.getElementById('flow-meta');
     if (metaEl) metaEl.innerHTML = '<span class="meta-item" style="color:var(--danger)">✕ 执行失败</span>';

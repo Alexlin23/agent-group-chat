@@ -91,6 +91,9 @@ async def startup():
         hermes_key=HERMES_API_KEY,
     )
     workflow_manager.load()
+    # Generate workflow_events.js from Python constants
+    from workflow_events import generate_js
+    generate_js(str(BASE_DIR / "workflow_events.js"))
     # Reset stale streaming flags
     from storage import save_conversation as _save_conv
     for conv in app_state.conversations.values():

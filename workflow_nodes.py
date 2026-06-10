@@ -22,6 +22,7 @@ from typing import Any
 
 from hermes_client import stream_hermes
 from text_utils import build_context_text, strip_agent_prefix
+from workflow_events import NODE_START, NODE_TEXT, NODE_DONE, NODE_ERROR, CONDITION_START, CONDITION_DONE, CONDITION_FALLBACK, PARALLEL_START, PARALLEL_DONE, HUMAN_INPUT_REQUIRED, HUMAN_INPUT_RECEIVED
 from workflow_state import WorkflowState, WorkflowContext
 
 
@@ -83,7 +84,7 @@ async def agent_node(
     rendered_prompt = render_template(prompt_template, state.get("variables", {}))
 
     if event_buffer:
-        event_buffer.push("node_start", {
+        event_buffer.push(NODE_START, {
             "node_id": node_id, "node_name": node_name,
             "agent_id": agent_id, "agent_name": agent["name"],
         })
@@ -102,16 +103,16 @@ async def agent_node(
         async for chunk in stream_hermes(ctx["hermes_url"], ctx["hermes_key"], system_prompt):
             full_response += chunk
             if event_buffer:
-                event_buffer.push("node_text", {"node_id": node_id, "agent_id": agent_id, "text": chunk})
+                event_buffer.push(NODE_TEXT, {"node_id": node_id, "agent_id": agent_id, "text": chunk})
     except RuntimeError as e:
         if event_buffer:
-            event_buffer.push("node_error", {"node_id": node_id, "agent_id": agent_id, "error": str(e)})
+            event_buffer.push(NODE_ERROR, {"node_id": node_id, "agent_id": agent_id, "error": str(e)})
         return {"status": "failed", "completed_nodes": [node_id], "error": f"Node '{node_id}' failed: {str(e)[:200]}"}
 
     clean_response = strip_agent_prefix(full_response, agent["name"])
 
     if event_buffer:
-        event_buffer.push("node_done", {
+        event_buffer.push(NODE_DONE, {
             "node_id": node_id, "node_name": node_name,
             "agent_id": agent_id, "agent_name": agent["name"],
             "output_var": output_var, "full_response": clean_response,
@@ -149,7 +150,7 @@ async def condition_node(
     event_buffer = ctx.get("event_buffer")
 
     if event_buffer:
-        event_buffer.push("condition_start", {"node_id": node_id, "node_name": node_name, "paths": paths})
+        event_buffer.push(CONDITION_START, {"node_id": node_id, "node_name": node_name, "paths": paths})
 
     rendered = render_template(condition_prompt, state.get("variables", {}))
     system_prompt = (
@@ -175,10 +176,10 @@ async def condition_node(
     if not matched:
         matched = paths[0] if paths else ""
         if event_buffer:
-            event_buffer.push("condition_fallback", {"node_id": node_id, "raw_response": response[:100], "fallback_to": matched})
+            event_buffer.push(CONDITION_FALLBACK, {"node_id": node_id, "raw_response": response[:100], "fallback_to": matched})
 
     if event_buffer:
-        event_buffer.push("condition_done", {"node_id": node_id, "node_name": node_name, "chosen_path": matched})
+        event_buffer.push(CONDITION_DONE, {"node_id": node_id, "node_name": node_name, "chosen_path": matched})
 
     return {
         "current_node": node_id,
@@ -227,7 +228,7 @@ async def parallel_node(
         }
 
     if event_buffer:
-        event_buffer.push("parallel_start", {"node_id": node_id, "node_name": node_name, "item_count": len(items)})
+        event_buffer.push(PARALLEL_START, {"node_id": node_id, "node_name": node_name, "item_count": len(items)})
 
     async def _run_one(idx: int, item: Any) -> dict:
         item_vars = dict(state.get("variables", {}))
@@ -253,7 +254,7 @@ async def parallel_node(
             all_messages.extend(result.get("messages", []))
 
     if event_buffer:
-        event_buffer.push("parallel_done", {"node_id": node_id, "node_name": node_name, "completed": len([o for o in outputs if not str(o).startswith("ERROR:")]), "failed": len([o for o in outputs if str(o).startswith("ERROR:")])})
+        event_buffer.push(PARALLEL_DONE, {"node_id": node_id, "node_name": node_name, "completed": len([o for o in outputs if not str(o).startswith("ERROR:")]), "failed": len([o for o in outputs if str(o).startswith("ERROR:")])})
 
     variables = dict(state.get("variables", {}))
     variables[output_var] = json.dumps(outputs, ensure_ascii=False)
@@ -284,18 +285,18 @@ async def human_node(
     rendered = render_template(prompt, state.get("variables", {}))
 
     if event_buffer:
-        event_buffer.push("human_input_required", {"node_id": node_id, "node_name": node_name, "prompt": rendered})
+        event_buffer.push(HUMAN_INPUT_REQUIRED, {"node_id": node_id, "node_name": node_name, "prompt": rendered})
 
     human_input = state.get("human_input", "")
     if human_input and human_input.strip():
         variables = dict(state.get("variables", {}))
         variables[output_var] = human_input
         if event_buffer:
-            event_buffer.push("human_input_received", {"node_id": node_id, "input": human_input[:200]})
+            event_buffer.push(HUMAN_INPUT_RECEIVED, {"node_id": node_id, "input": human_input[:200]})
         return {
             "current_node": node_id, "completed_nodes": [node_id],
             "variables": variables, "waiting_for_human": False, "human_input": "",
-            "execution_log": [{"node_id": node_id, "status": "human_input_received", "timestamp": datetime.now().isoformat()}],
+            "execution_log": [{"node_id": node_id, "status": HUMAN_INPUT_RECEIVED, "timestamp": datetime.now().isoformat()}],
         }
 
     return {
@@ -324,7 +325,7 @@ async def code_node(
     event_buffer = ctx.get("event_buffer")
 
     if event_buffer:
-        event_buffer.push("node_start", {"node_id": node_id, "node_name": node_name, "type": "code"})
+        event_buffer.push(NODE_START, {"node_id": node_id, "node_name": node_name, "type": "code"})
 
     if not code.strip():
         return {"status": "failed", "completed_nodes": [node_id], "error": f"Node '{node_id}': empty code"}
@@ -343,7 +344,7 @@ async def code_node(
 
     if result.get("error"):
         if event_buffer:
-            event_buffer.push("node_error", {"node_id": node_id, "error": result["error"][:200]})
+            event_buffer.push(NODE_ERROR, {"node_id": node_id, "error": result["error"][:200]})
         return {
             "status": "failed", "completed_nodes": [node_id],
             "error": f"Node '{node_id}' code error: {result['error'][:200]}",
@@ -358,7 +359,7 @@ async def code_node(
     node_outputs[node_id] = output_value
 
     if event_buffer:
-        event_buffer.push("node_done", {"node_id": node_id, "node_name": node_name, "type": "code", "output_var": output_var})
+        event_buffer.push(NODE_DONE, {"node_id": node_id, "node_name": node_name, "type": "code", "output_var": output_var})
 
     return {
         "current_node": node_id, "completed_nodes": [node_id],
