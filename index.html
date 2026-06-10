@@ -1175,6 +1175,7 @@ function onStreamEnd() {
   updateSendBtn();
   enableInput(true);
   loadConversations();
+  loadFlows();  // 刷新工作流列表（agent 可能在对话中创建了新工作流）
 }
 
 function sortMessages(msgs) {
