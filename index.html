@@ -2008,20 +2008,20 @@ function backToFlowGraph() {
 
 function connectFlowStream(runId) {
   const es = new EventSource('/api/workflows/runs/' + runId + '/stream?last_id=-1');
-  es.addEventListener('step_start', function(e) {
+  es.addEventListener('node_start', function(e) {
     const d = JSON.parse(e.data);
-    const statusEl = document.getElementById('exec-status-' + d.step_id);
-    const stepEl = document.getElementById('exec-step-' + d.step_id);
-    const outputEl = document.getElementById('exec-output-' + d.step_id);
-    const dotEl = document.getElementById('exec-dot-' + d.step_id);
+    const statusEl = document.getElementById('exec-status-' + d.node_id);
+    const stepEl = document.getElementById('exec-step-' + d.node_id);
+    const outputEl = document.getElementById('exec-output-' + d.node_id);
+    const dotEl = document.getElementById('exec-dot-' + d.node_id);
     if (statusEl) statusEl.className = 'exec-status running';
     if (stepEl) stepEl.className = 'exec-step running';
     if (dotEl) dotEl.className = 'flow-node-exec running';
     if (outputEl) { outputEl.style.display = 'block'; outputEl.innerHTML = ''; }
   });
-  es.addEventListener('step_text', function(e) {
+  es.addEventListener('node_text', function(e) {
     const d = JSON.parse(e.data);
-    const outputEl = document.getElementById('exec-output-' + d.step_id);
+    const outputEl = document.getElementById('exec-output-' + d.node_id);
     if (outputEl) {
       const cursor = outputEl.querySelector('.streaming-cursor');
       if (cursor) cursor.remove();
@@ -2032,29 +2032,29 @@ function connectFlowStream(runId) {
       outputEl.scrollTop = outputEl.scrollHeight;
     }
   });
-  es.addEventListener('step_done', function(e) {
+  es.addEventListener('node_done', function(e) {
     const d = JSON.parse(e.data);
-    const statusEl = document.getElementById('exec-status-' + d.step_id);
-    const stepEl = document.getElementById('exec-step-' + d.step_id);
-    const outputEl = document.getElementById('exec-output-' + d.step_id);
-    const dotEl = document.getElementById('exec-dot-' + d.step_id);
+    const statusEl = document.getElementById('exec-status-' + d.node_id);
+    const stepEl = document.getElementById('exec-step-' + d.node_id);
+    const outputEl = document.getElementById('exec-output-' + d.node_id);
+    const dotEl = document.getElementById('exec-dot-' + d.node_id);
     if (statusEl) statusEl.className = 'exec-status completed';
     if (stepEl) stepEl.className = 'exec-step completed';
     if (dotEl) dotEl.className = 'flow-node-exec completed';
     if (outputEl) { const c = outputEl.querySelector('.streaming-cursor'); if (c) c.remove(); }
   });
-  es.addEventListener('step_error', function(e) {
+  es.addEventListener('node_error', function(e) {
     const d = JSON.parse(e.data);
-    const statusEl = document.getElementById('exec-status-' + d.step_id);
-    const stepEl = document.getElementById('exec-step-' + d.step_id);
-    const outputEl = document.getElementById('exec-output-' + d.step_id);
-    const dotEl = document.getElementById('exec-dot-' + d.step_id);
+    const statusEl = document.getElementById('exec-status-' + d.node_id);
+    const stepEl = document.getElementById('exec-step-' + d.node_id);
+    const outputEl = document.getElementById('exec-output-' + d.node_id);
+    const dotEl = document.getElementById('exec-dot-' + d.node_id);
     if (statusEl) statusEl.className = 'exec-status failed';
     if (stepEl) stepEl.className = 'exec-step failed';
     if (dotEl) dotEl.className = 'flow-node-exec failed';
     if (outputEl) { outputEl.style.display = 'block'; outputEl.innerHTML = '<span style="color:var(--danger)">Error: ' + esc(d.error || 'Unknown') + '</span>'; }
   });
-  es.addEventListener('flow_done', function() {
+  es.addEventListener('workflow_done', function() {
     es.close();
     const metaEl = document.getElementById('flow-meta');
     if (metaEl) metaEl.innerHTML = '<span class="meta-item" style="color:var(--success)">✓ 执行完成</span>';
@@ -2063,7 +2063,7 @@ function connectFlowStream(runId) {
     const backBtn = document.getElementById('flow-back-btn');
     if (backBtn) backBtn.onclick = backToFlowGraph;
   });
-  es.addEventListener('flow_error', function() {
+  es.addEventListener('workflow_error', function() {
     es.close();
     const metaEl = document.getElementById('flow-meta');
     if (metaEl) metaEl.innerHTML = '<span class="meta-item" style="color:var(--danger)">✕ 执行失败</span>';
