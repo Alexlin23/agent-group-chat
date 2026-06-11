@@ -119,6 +119,39 @@ agents:
 | `POST` | `/api/task-flows/generate` | AI 生成工作流 |
 | `POST` | `/api/task-flows/{id}/run` | 执行工作流 |
 
+## 已知问题
+
+> **项目状态：开发中，存在严重问题，不建议生产使用。**
+
+### 严重（Critical）
+
+| # | 问题 | 状态 | 说明 |
+|---|------|------|------|
+| C1 | 代码执行沙箱逃逸 | 未修复 | code_executor.py 未拦截 `__class__.__bases__.__subclasses__` 等反射链，恶意代码可突破沙箱执行任意系统命令 |
+| C2 | 前端缺少 WORKFLOW_PAUSED 处理 | 未修复 | index.html 未监听 `workflow_paused` SSE 事件，工作流暂停时前端无任何提示，用户不知道需要介入 |
+| C3 | 暂停时 EventBuffer 未关闭 | 未修复 | human-in-the-loop 节点暂停后，EventBuffer 未调用 close()，SSE 订阅者会一直挂起等待 |
+
+### 中等（Warning）
+
+| # | 问题 | 状态 | 说明 |
+|---|------|------|------|
+| W3 | 条件节点子串匹配歧义 | 未修复 | condition_node 用 `path.lower() in chosen` 做子串匹配，当分支名包含关系时（如 "pass" 和 "passed"）会误判 |
+| W5 | 并行节点无并发上限 | 未修复 | parallel_node 直接 `asyncio.gather()` 所有任务，无信号量或并发限制，大量并行任务会耗尽资源 |
+
+### 已修复但方案不理想
+
+| # | 问题 | 说明 |
+|---|------|------|
+| H1 | 工作流执行挂起 | 已加 catch-all exception + timeout + heartbeat，但心跳是治标不治本的方案 |
+
+### 历史已修复
+
+- SSE 事件名不匹配（step_*→node_*，flow_*→workflow_*）
+- 前端工作流格式错误（steps→nodes，prompt_template→prompt）
+- 重复 const 声明导致前端白屏
+- 对话切换时显示残留
+- sys 未模块级导入导致 finally 块 NameError（C5，已修复）
+
 ## 技术栈
 
 - **后端：** Python 3.12, FastAPI, asyncio, Pydantic, LangGraph

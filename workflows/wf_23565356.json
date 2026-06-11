@@ -1,0 +1,55 @@
+{
+  "id": "wf_23565356",
+  "name": "历史上的今天",
+  "description": "自动获取系统时间，搜索历史事件并评论",
+  "created_at": "2026-06-10T19:34:39.943145",
+  "updated_at": "2026-06-10T19:34:39.943145",
+  "nodes": [
+    {
+      "name": "获取系统时间",
+      "prompt": "",
+      "output_var": "today",
+      "timeout": 300,
+      "code": "import datetime\nresult = datetime.datetime.now().strftime(\"%m月%d日\")",
+      "id": "get_date",
+      "type": "code"
+    },
+    {
+      "name": "搜索历史事件",
+      "prompt": "搜索{{today}}在历史上发生的重要事件，列出至少5件有代表性的事件，每件事件简要说明时间和背景",
+      "output_var": "events",
+      "timeout": 300,
+      "code": "",
+      "id": "search_events",
+      "agent_id": "assistant"
+    },
+    {
+      "name": "评论历史事件",
+      "prompt": "对以下历史事件进行点评分析：\n\n{{events}}\n\n请从历史意义、对后世的影响等角度进行评论，语言要生动有趣",
+      "output_var": "comments",
+      "timeout": 300,
+      "code": "",
+      "id": "comment_events",
+      "agent_id": "assistant"
+    }
+  ],
+  "edges": [
+    {
+      "from": "__start__",
+      "to": "get_date"
+    },
+    {
+      "from": "get_date",
+      "to": "search_events"
+    },
+    {
+      "from": "search_events",
+      "to": "comment_events"
+    },
+    {
+      "from": "comment_events",
+      "to": "__end__"
+    }
+  ],
+  "conditional_edges": []
+}

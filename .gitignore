@@ -7,3 +7,4 @@ conversations/
 task_flows/
 task_flow_runs/
 .flow_js.b64
+workflow_runs/
