@@ -157,8 +157,8 @@ async def send_message(req: MessageRequest, conv_id: str = Depends(validate_conv
         finally:
             my_buffer.push("done", {})
             my_buffer.close()
-            if s.active_buffers.get(conv_id) is my_buffer:
-                s.active_buffers.pop(conv_id, None)
+            # DON'T pop buffer — late-joining SSE clients need to replay events.
+            # Buffer is replaced when next message arrives, and cleared on startup.
 
     task = asyncio.create_task(_run())
     s.active_tasks[conv_id] = task
@@ -179,13 +179,15 @@ async def stream_conversation(
     buffer = s.active_buffers.get(conv_id)
 
     async def event_generator():
-        if buffer is None or not buffer.is_active:
-            yield format_sse({"type": "no_task", "id": -1})
+        # Case 1: buffer exists (active or closed) — subscribe for replay
+        if buffer is not None:
+            async for event in buffer.subscribe(last_id):
+                sse = format_sse(event)
+                if sse:
+                    yield sse
             return
-        async for event in buffer.subscribe(last_id):
-            sse = format_sse(event)
-            if sse:
-                yield sse
+        # Case 2: no buffer at all — nothing to replay
+        yield format_sse({"type": "no_task", "id": -1})
 
     return StreamingResponse(
         event_generator(),

@@ -42,30 +42,37 @@ class EventBuffer:
         """Yield events starting from last_id+1.
 
         Blocks when caught up, yields new events as they arrive.
-        Sends a heartbeat every 30s if no new events.
-        Yields None (stops) when the buffer is closed.
+        Stops when the buffer is closed and all events are drained.
         """
         idx = last_id + 1
-        while not self._closed:
-            # Drain all available events
+        # Drain any already-buffered events (works whether open or closed)
+        while idx < len(self.events):
+            yield self.events[idx]
+            idx += 1
+
+        # If closed after drain, we're done
+        if self._closed:
+            return
+
+        # Otherwise wait for new events
+        while True:
+            waiter = asyncio.Event()
+            self._waiters.append(waiter)
+            try:
+                await asyncio.wait_for(waiter.wait(), timeout=30.0)
+            except asyncio.TimeoutError:
+                yield {"type": "_heartbeat", "id": -1, "ts": time.time()}
+            finally:
+                if waiter in self._waiters:
+                    self._waiters.remove(waiter)
+
+            # Drain new events
             while idx < len(self.events):
                 yield self.events[idx]
                 idx += 1
 
             if self._closed:
                 break
-
-            # Wait for new events
-            waiter = asyncio.Event()
-            self._waiters.append(waiter)
-            try:
-                await asyncio.wait_for(waiter.wait(), timeout=30.0)
-            except asyncio.TimeoutError:
-                # Heartbeat to keep connection alive
-                yield {"type": "_heartbeat", "id": -1, "ts": time.time()}
-            finally:
-                if waiter in self._waiters:
-                    self._waiters.remove(waiter)
 
     def close(self):
         """Mark buffer as done. Subscribers will drain remaining events and stop."""
